@@ -22,7 +22,8 @@ export default function usePrices() {
   useEffect(() => {
     fetchAssets()
     if (!socket) {
-      socket = io('/', { path: '/socket.io', transports: ['websocket', 'polling'] })
+      const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000'
+      socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] })
     }
     socket.on('priceUpdate', (updated) => {
       setAssets(prev => prev.map(a => updated[a.symbol] ? { ...a, ...updated[a.symbol] } : a))

@@ -1,0 +1,57 @@
+# render.yaml — defines both Render services for PriceOracle
+# Deploy by connecting this repo to Render and using "Blueprint" deployment
+
+services:
+  # ─────────────────────────────────────────────
+  # 1. Python ML Flask API
+  # ─────────────────────────────────────────────
+  - type: web
+    name: priceoracle-ml
+    runtime: python
+    rootDir: ml
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn api_server:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+    plan: free
+    envVars:
+      - key: NEWSAPI_KEY
+        sync: false   # Set manually in Render dashboard
+      - key: FRED_API_KEY
+        sync: false   # Set manually in Render dashboard
+
+  # ─────────────────────────────────────────────
+  # 2. Node.js Express Backend
+  # ─────────────────────────────────────────────
+  - type: web
+    name: priceoracle-server
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false   # Set manually in Render dashboard
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: JWT_EXPIRE
+        value: 1d
+      - key: JWT_REFRESH_EXPIRE
+        value: 7d
+      - key: ML_API_URL
+        sync: false   # Set to: https://priceoracle-ml.onrender.com
+      - key: CLIENT_URL
+        sync: false   # Set to: https://YOUR-APP.netlify.app
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_EMAIL
+        value: mailto:admin@priceoracle.com
+      - key: NEWSAPI_KEY
+        sync: false
+      - key: FRED_API_KEY
+        sync: false

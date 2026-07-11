@@ -1,0 +1,12 @@
+node_modules/
+.env
+*.pyc
+__pycache__/
+ml/data/
+ml/models/
+ml/reports/
+dist/
+build/
+.DS_Store
+*.log
+.vscode/

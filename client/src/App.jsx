@@ -5,6 +5,7 @@ import { SocketProvider } from './context/SocketContext'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import ProtectedRoute from './components/ProtectedRoute'
+import ScrollToTop from './components/ScrollToTop'
 
 import Landing from './pages/Landing'
 import Login from './pages/Login'
@@ -31,6 +32,7 @@ export default function App() {
   return (
     <AuthProvider>
       <SocketProvider>
+        <ScrollToTop />
         <Navbar />
         <Routes>
         {/* Public routes */}

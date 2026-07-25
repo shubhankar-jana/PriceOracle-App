@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { formatCurrency } from '../utils/helpers'
 
@@ -14,33 +15,41 @@ const CustomTooltip = ({ active, payload, label }) => {
   return (
     <div className="custom-tooltip">
       <div className="tooltip-date">{label}</div>
-      <div className="tooltip-row"><span>Close</span><span>{formatCurrency(payload[0]?.value)}</span></div>
+      <div className="tooltip-row">
+        <span>Close</span>
+        <span>{formatCurrency(payload[0]?.value)}</span>
+      </div>
     </div>
   )
 }
 
-/**
- * Smart Y-axis tick formatter — avoids showing "$1" for values like 1.08 (EUR/USD).
- * Shows enough decimal places based on the data range.
- */
-const makeYAxisFormatter = (data) => {
-  if (!data || data.length === 0) return v => formatCurrency(v)
-  const values = data.map(d => d.close).filter(Boolean)
-  const max = Math.max(...values)
-  const min = Math.min(...values)
-  const range = max - min
-
-  // For very small values (e.g. currency pairs < 10), show 4 decimals
-  if (max < 10) return v => v.toFixed(4)
-  // For medium range values (< 100), show 2 decimals
-  if (max < 100) return v => v.toFixed(2)
-  // For large values, show abbreviated with $
-  if (range > 1000) return v => '$' + (v / 1000).toFixed(1) + 'k'
-  return v => '$' + v.toFixed(0)
-}
-
 export default function PriceChart({ data = [], symbol, loading = false, selectedPeriod = '1m', onPeriodChange }) {
-  const yFormatter = makeYAxisFormatter(data)
+  // Compute Y-axis domain + tick formatter from data — memoized so it doesn't recalculate on every render
+  const { yDomain, yFormatter } = useMemo(() => {
+    if (!data || data.length === 0) {
+      return { yDomain: ['auto', 'auto'], yFormatter: v => formatCurrency(v) }
+    }
+
+    const values = data.map(d => d.close).filter(v => v != null && v > 0)
+    if (values.length === 0) return { yDomain: ['auto', 'auto'], yFormatter: v => formatCurrency(v) }
+
+    const min = Math.min(...values)
+    const max = Math.max(...values)
+    const padding = (max - min) * 0.08 || max * 0.02 // 8% padding, or 2% of max if flat
+
+    const domainMin = Math.max(0, min - padding)
+    const domainMax = max + padding
+
+    // Formatter: adapt decimals to the price magnitude
+    let fmt
+    if (max < 10) fmt = v => v.toFixed(4)           // EUR/USD, NZD/USD
+    else if (max < 100) fmt = v => v.toFixed(2)      // Silver ~30, crude ~70
+    else if (max >= 100000) fmt = v => '$' + (v / 1000).toFixed(0) + 'k'  // BTC
+    else if (max >= 1000) fmt = v => '$' + (v / 1000).toFixed(1) + 'k'    // Gold ~3300
+    else fmt = v => '$' + v.toFixed(0)               // Stocks ~100-999
+
+    return { yDomain: [domainMin, domainMax], yFormatter: fmt }
+  }, [data])
 
   return (
     <div className="chart-container">
@@ -59,32 +68,49 @@ export default function PriceChart({ data = [], symbol, loading = false, selecte
           ))}
         </div>
       </div>
+
       <div className="chart-wrapper">
         {loading ? (
-          <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+          <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div className="loader-spinner" style={{ width: 28, height: 28 }} />
           </div>
         ) : data.length > 0 ? (
           <ResponsiveContainer width="100%" height={280}>
-            <AreaChart data={data} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
+            <AreaChart data={data} margin={{ top: 10, right: 10, bottom: 5, left: 0 }}>
               <defs>
                 <linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#667eea" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#667eea" stopOpacity={0} />
+                  <stop offset="5%"  stopColor="#667eea" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#667eea" stopOpacity={0.02} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="date" tick={{ fill: '#606080', fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+              <XAxis
+                dataKey="date"
+                tick={{ fill: '#606080', fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
+                interval="preserveStartEnd"
+              />
               <YAxis
                 tick={{ fill: '#606080', fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
                 tickFormatter={yFormatter}
-                width={65}
-                domain={['auto', 'auto']}
+                width={68}
+                domain={yDomain}
+                tickCount={6}
               />
               <Tooltip content={<CustomTooltip />} />
-              <Area type="monotone" dataKey="close" stroke="#667eea" strokeWidth={2} fill="url(#priceGrad)" dot={false} activeDot={{ r: 4, fill: '#667eea' }} />
+              <Area
+                type="monotone"
+                dataKey="close"
+                stroke="#667eea"
+                strokeWidth={2}
+                fill="url(#priceGrad)"
+                dot={false}
+                activeDot={{ r: 4, fill: '#667eea', stroke: '#667eea' }}
+                isAnimationActive={false}
+              />
             </AreaChart>
           </ResponsiveContainer>
         ) : (

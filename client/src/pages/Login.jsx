@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { FiMail, FiLock, FiEye, FiEyeOff } from 'react-icons/fi'
 import toast from 'react-hot-toast'
@@ -10,13 +10,27 @@ export default function Login() {
   const [showPw, setShowPw] = useState(false)
   const { login, loading, isAuthenticated } = useAuth()
   const navigate = useNavigate()
+  // Track whether the initial auth check has settled — prevents the "already logged in"
+  // toast firing on a completely fresh load where sessionStorage has a stale token.
+  const didMount = useRef(false)
 
   useEffect(() => {
-    if (isAuthenticated) {
+    // Only redirect/toast if the user is authenticated AFTER mount has settled.
+    // On first render didMount.current is false, so we skip the toast.
+    if (didMount.current && isAuthenticated) {
       toast('You are already logged in', { icon: 'ℹ️' })
       navigate('/dashboard', { replace: true })
     }
+    didMount.current = true
   }, [isAuthenticated, navigate])
+
+  // If already authenticated on mount (same-session token), silently redirect without toast
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/dashboard', { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handle = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }))
 

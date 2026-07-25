@@ -83,9 +83,13 @@ router.get('/:symbol/history', async (req, res, next) => {
       });
     }
 
+    // Translate frontend period codes → Yahoo Finance period strings used by ML API
+    const periodMap = { '1d': '5d', '1w': '1mo', '1m': '1mo', '3m': '3mo', '6m': '6mo', '1y': '1y', '5y': '5y' };
+    const mlPeriod = periodMap[period] || '1mo';
+
     // Try to get historical data from ML API
     try {
-      const historyData = await mlBridge.getHistory(symbol, period);
+      const historyData = await mlBridge.getHistory(symbol, mlPeriod);
       
       if (historyData && historyData.history && historyData.history.length > 0) {
         return res.json({

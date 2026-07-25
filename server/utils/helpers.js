@@ -49,7 +49,7 @@ const formatPrice = (price) => {
  */
 const sanitizeSymbol = (symbol) => {
   if (!symbol) return '';
-  return symbol.trim().toUpperCase().replace(/[^A-Z0-9._-]/g, '');
+  return symbol.trim().toUpperCase().replace(/[^A-Z0-9._=\-]/g, '');
 };
 
 module.exports = {

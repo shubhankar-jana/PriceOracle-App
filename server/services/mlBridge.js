@@ -6,7 +6,20 @@ const mlClient = axios.create({
   timeout: 120000, // 2 minutes — ML predictions can take time
   headers: {
     'Content-Type': 'application/json',
+    'Accept': 'application/json',
   },
+  // Force axios to always parse the response as JSON regardless of Content-Type header.
+  // This prevents issues where a reverse proxy (e.g. Render's nginx) may strip or
+  // change the Content-Type, causing axios to return the raw string instead of a parsed object.
+  transformResponse: [
+    (data) => {
+      if (typeof data === 'string') {
+        try { return JSON.parse(data); }
+        catch { return data; }
+      }
+      return data;
+    },
+  ],
 });
 
 // Request/response interceptors for logging
@@ -37,13 +50,17 @@ mlClient.interceptors.response.use(
 );
 
 /**
+ * Safely encode a ticker symbol for use in a URL path segment.
+ * Symbols like GC=F, SI=F, EURUSD=X contain '=' which must be percent-encoded
+ * or nginx/proxies will silently strip it, turning 'GC=F' into 'GCF'.
+ */
+const encodeSymbol = (symbol) => encodeURIComponent(symbol);
+
+/**
  * Get prediction for a specific symbol.
- * @param {string} symbol - Asset symbol.
- * @param {string} task - 'regression' or 'direction'.
- * @returns {Promise<object>} Prediction data.
  */
 const getPrediction = async (symbol, task = 'regression') => {
-  const response = await mlClient.get(`/predict/${symbol}`, {
+  const response = await mlClient.get(`/predict/${encodeSymbol(symbol)}`, {
     params: { task },
   });
   return response.data;
@@ -51,8 +68,6 @@ const getPrediction = async (symbol, task = 'regression') => {
 
 /**
  * Get predictions for all tracked assets.
- * @param {string} task - 'regression' or 'direction'.
- * @returns {Promise<object>} All predictions data.
  */
 const getAllPredictions = async (task = 'regression') => {
   const response = await mlClient.get('/predict/all', {
@@ -63,7 +78,6 @@ const getAllPredictions = async (task = 'regression') => {
 
 /**
  * Get latest prices for all tracked assets.
- * @returns {Promise<object>} Latest prices data.
  */
 const getLatestPrices = async () => {
   const response = await mlClient.get('/latest-prices');
@@ -72,7 +86,6 @@ const getLatestPrices = async () => {
 
 /**
  * Get list of supported assets from ML API.
- * @returns {Promise<object>} Assets list.
  */
 const getAssets = async () => {
   const response = await mlClient.get('/assets');
@@ -81,7 +94,6 @@ const getAssets = async () => {
 
 /**
  * Check ML API health status.
- * @returns {Promise<object>} Health check response.
  */
 const checkHealth = async () => {
   try {
@@ -94,12 +106,11 @@ const checkHealth = async () => {
 
 /**
  * Get historical price data for a specific symbol.
- * @param {string} symbol - Asset symbol.
- * @param {string} period - '1mo', '3mo', '6mo', '1y' etc.
- * @returns {Promise<object>} History data.
+ * Symbol MUST be percent-encoded in the path — '=' in GC=F would be silently
+ * dropped by proxies if sent as a raw character.
  */
 const getHistory = async (symbol, period = '3mo') => {
-  const response = await mlClient.get(`/history/${symbol}`, {
+  const response = await mlClient.get(`/history/${encodeSymbol(symbol)}`, {
     params: { period },
   });
   return response.data;

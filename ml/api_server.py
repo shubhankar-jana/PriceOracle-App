@@ -118,12 +118,19 @@ def predict_all_endpoint():
     })
 
 
-@app.route("/predict/<symbol>", methods=["GET"])
+@app.route("/predict/<path:symbol>", methods=["GET"])
 def predict_symbol(symbol: str):
-    """Generate prediction for a single asset."""
+    """Generate prediction for a single asset.
+    Uses <path:symbol> so Flask doesn't treat '/' in symbols as a route separator.
+    The symbol may arrive URL-encoded (e.g. GC%3DF) — urllib.parse.unquote handles it.
+    """
+    from urllib.parse import unquote
     task = request.args.get("task", "regression")
     if task not in ("regression", "direction"):
         return jsonify({"error": True, "message": "Invalid task. Use 'regression' or 'direction'."}), 400
+
+    # Decode URL-encoded symbol: GC%3DF → GC=F
+    symbol = unquote(symbol).upper().strip()
 
     if symbol not in config.ALL_ASSETS:
         return jsonify({
@@ -134,7 +141,6 @@ def predict_symbol(symbol: str):
     name = config.ALL_ASSETS[symbol]
     result = predict_single(symbol, task)
     if result.get("error"):
-        # Fallback: technical analysis
         result = _technical_prediction(symbol, name, task)
 
     if result.get("error"):
@@ -146,43 +152,64 @@ def predict_symbol(symbol: str):
 # ---------------------------------------------------------------------------
 # HISTORY
 # ---------------------------------------------------------------------------
-@app.route("/history/<symbol>", methods=["GET"])
+@app.route("/history/<path:symbol>", methods=["GET"])
 def get_history(symbol):
-    """Fetch up to 90 days of daily OHLCV history for a single asset."""
+    """Fetch daily OHLCV history for a single asset.
+    Uses <path:symbol> + URL-decoding so GC%3DF → GC=F works correctly.
+    Uses yf.download() which is more reliable than ticker.history() on hosted servers.
+    """
+    from urllib.parse import unquote
     import yfinance as yf
-    import pandas as pd
+
+    # Decode URL-encoded symbol
+    symbol = unquote(symbol).upper().strip()
 
     period_map = {"1d": "5d", "1w": "1mo", "1m": "1mo", "3m": "3mo", "6m": "6mo", "1y": "1y", "5y": "5y"}
     raw_period = request.args.get("period", "3mo")
     period = period_map.get(raw_period, raw_period)
+
     if symbol not in config.ALL_ASSETS:
         return jsonify({"error": True, "message": f"Unknown symbol '{symbol}'"}), 404
 
     try:
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period=period, interval="1d")
+        # yf.download is more reliable than ticker.history() on cloud servers
+        hist = yf.download(symbol, period=period, interval="1d", progress=False, auto_adjust=True)
         if hist.empty:
-            return jsonify({"symbol": symbol, "history": [], "count": 0})
+            # Try ticker.history() as backup
+            ticker = yf.Ticker(symbol)
+            hist = ticker.history(period=period, interval="1d")
+
+        if hist.empty:
+            return jsonify({"symbol": symbol, "history": [], "count": 0,
+                            "message": "No data available from yfinance"})
+
+        # Flatten MultiIndex columns if yf.download returned them
+        if hasattr(hist.columns, 'levels'):
+            hist.columns = [col[0] if isinstance(col, tuple) else col for col in hist.columns]
 
         records = []
         for idx, row in hist.iterrows():
-            records.append({
-                "date": str(idx.date()),
-                "open": round(float(row["Open"]), 4),
-                "high": round(float(row["High"]), 4),
-                "low": round(float(row["Low"]), 4),
-                "close": round(float(row["Close"]), 4),
-                "volume": int(row["Volume"]) if row["Volume"] > 0 else 0,
-            })
+            try:
+                records.append({
+                    "date": str(idx.date()) if hasattr(idx, 'date') else str(idx)[:10],
+                    "open":   round(float(row.get("Open",   row.get("open",   0))), 4),
+                    "high":   round(float(row.get("High",   row.get("high",   0))), 4),
+                    "low":    round(float(row.get("Low",    row.get("low",    0))), 4),
+                    "close":  round(float(row.get("Close",  row.get("close",  0))), 4),
+                    "volume": int(row.get("Volume", row.get("volume", 0)) or 0),
+                })
+            except Exception:
+                continue  # skip malformed rows
 
         return jsonify({
             "symbol": symbol,
-            "name": config.ALL_ASSETS[symbol],
+            "name": config.ALL_ASSETS.get(symbol, symbol),
             "period": period,
             "count": len(records),
             "history": records,
         })
     except Exception as e:
+        log.error(f"History fetch failed for {symbol}: {e}")
         return jsonify({"error": True, "symbol": symbol, "message": str(e)}), 500
 
 
@@ -191,46 +218,111 @@ def get_history(symbol):
 # ---------------------------------------------------------------------------
 @app.route("/latest-prices", methods=["GET"])
 def latest_prices():
-    """Fetch current/latest prices for all tracked assets using yfinance."""
-    import yfinance as yf
-    import math
+    """Fetch current prices for all tracked assets using yfinance batch download.
 
+    Uses yf.download() with all symbols at once — much faster and more reliable
+    than per-ticker calls, and avoids Yahoo Finance rate limiting on cloud servers.
+    Falls back to per-ticker calls if batch download fails or returns partial data.
+    """
+    import yfinance as yf
+
+    all_symbols = list(config.ALL_ASSETS.keys())
     prices = []
     errors = []
 
-    for symbol, name in config.ALL_ASSETS.items():
+    # ── Batch download (fast path) ────────────────────────────────────────────
+    try:
+        batch = yf.download(
+            tickers=all_symbols,
+            period="5d",
+            interval="1d",
+            progress=False,
+            auto_adjust=True,
+            group_by="ticker",
+            threads=True,
+        )
+
+        for symbol in all_symbols:
+            name = config.ALL_ASSETS[symbol]
+            try:
+                # Extract per-symbol slice from multi-level DataFrame
+                if len(all_symbols) > 1:
+                    sym_df = batch[symbol] if symbol in batch.columns.get_level_values(0) else None
+                else:
+                    sym_df = batch  # single ticker returns flat DataFrame
+
+                if sym_df is None or sym_df.empty or sym_df["Close"].dropna().empty:
+                    errors.append({"symbol": symbol, "name": name, "message": "No batch data"})
+                    continue
+
+                sym_df = sym_df.dropna(subset=["Close"])
+                latest = sym_df.iloc[-1]
+                current_close = float(latest["Close"])
+                prev_close = float(sym_df["Close"].iloc[-2]) if len(sym_df) >= 2 else None
+
+                entry = {
+                    "symbol": symbol,
+                    "name": name,
+                    "price": round(current_close, 4),
+                    "open":  round(float(latest.get("Open",  current_close)), 4),
+                    "high":  round(float(latest.get("High",  current_close)), 4),
+                    "low":   round(float(latest.get("Low",   current_close)), 4),
+                    "volume": int(latest.get("Volume", 0) or 0),
+                    "date":  str(sym_df.index[-1].date()),
+                }
+
+                if prev_close and prev_close != 0:
+                    change = current_close - prev_close
+                    entry["change"] = round(change, 4)
+                    entry["change_percent"] = round((change / prev_close) * 100, 2)
+
+                prices.append(entry)
+
+            except Exception as sym_err:
+                errors.append({"symbol": symbol, "name": name, "message": str(sym_err)})
+
+    except Exception as batch_err:
+        log.warning(f"Batch download failed ({batch_err}), falling back to per-ticker...")
+
+    # ── Per-ticker fallback for symbols that failed in batch ──────────────────
+    fetched_syms = {p["symbol"] for p in prices}
+    failed_syms  = [s for s in all_symbols if s not in fetched_syms]
+
+    for symbol in failed_syms:
+        name = config.ALL_ASSETS[symbol]
         try:
             ticker = yf.Ticker(symbol)
             hist = ticker.history(period="5d", interval="1d")
             if hist.empty:
-                errors.append({"symbol": symbol, "name": name, "message": "No data"})
+                errors.append({"symbol": symbol, "name": name, "message": "No data (ticker fallback)"})
                 continue
 
-            latest = hist.iloc[-1]
-            prev_close = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else None
+            latest       = hist.iloc[-1]
             current_close = float(latest["Close"])
+            prev_close    = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else None
 
             entry = {
                 "symbol": symbol,
-                "name": name,
-                "price": round(current_close, 4),
-                "open": round(float(latest["Open"]), 4),
-                "high": round(float(latest["High"]), 4),
-                "low": round(float(latest["Low"]), 4),
-                "volume": int(latest["Volume"]) if latest["Volume"] > 0 else None,
-                "date": str(hist.index[-1].date()),
+                "name":   name,
+                "price":  round(current_close, 4),
+                "open":   round(float(latest["Open"]),   4),
+                "high":   round(float(latest["High"]),   4),
+                "low":    round(float(latest["Low"]),    4),
+                "volume": int(latest["Volume"]) if latest["Volume"] > 0 else 0,
+                "date":   str(hist.index[-1].date()),
             }
 
-            if prev_close is not None and prev_close != 0:
+            if prev_close and prev_close != 0:
                 change = current_close - prev_close
-                change_pct = (change / prev_close) * 100
                 entry["change"] = round(change, 4)
-                entry["change_percent"] = round(change_pct, 2)
+                entry["change_percent"] = round((change / prev_close) * 100, 2)
 
             prices.append(entry)
 
         except Exception as e:
             errors.append({"symbol": symbol, "name": name, "message": str(e)})
+
+    log.info(f"latest-prices: {len(prices)} fetched, {len(errors)} errors")
 
     return jsonify({
         "count": len(prices),

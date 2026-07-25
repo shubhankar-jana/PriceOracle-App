@@ -9,10 +9,12 @@ services:
     name: priceoracle-ml
     runtime: python
     rootDir: ml
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: gunicorn api_server:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
     plan: free
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.12
       - key: NEWSAPI_KEY
         sync: false   # Set manually in Render dashboard
       - key: FRED_API_KEY

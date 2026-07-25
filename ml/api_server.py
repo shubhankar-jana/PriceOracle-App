@@ -242,89 +242,254 @@ def latest_prices():
 
 def _technical_prediction(symbol: str, name: str, task: str) -> dict:
     """
-    Generate a prediction using technical analysis on live data.
-    Used as a fallback when no trained ML model exists.
-    Uses: 5-day momentum, RSI-like signal, and volatility-based confidence.
+    Generate a prediction using a weighted multi-indicator technical analysis engine.
+    Used as fallback when no trained ML model exists for a symbol.
+
+    Indicators used (each contributes a weighted vote):
+      1. RSI-14          — oversold/overbought momentum
+      2. MACD crossover  — trend direction & strength
+      3. EMA 10/20 cross — short vs medium-term trend
+      4. Bollinger Band  — price position within bands (mean reversion)
+      5. 3-day momentum  — short-term price drift
+      6. 10-day momentum — medium-term price drift
+      7. Volume trend    — buying/selling pressure (if available)
+
+    Confidence is derived from weighted signal consensus, then adjusted by
+    recent volatility. Range: roughly 52%–82%.
     """
     import yfinance as yf
-    import math
     from datetime import timedelta
 
     try:
         ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="30d", interval="1d")
-        if hist.empty or len(hist) < 5:
-            return {"error": True, "symbol": symbol, "message": "Not enough data"}
+        hist = ticker.history(period="60d", interval="1d")
+        if hist.empty or len(hist) < 20:
+            return {"error": True, "symbol": symbol, "message": "Not enough data for technical analysis"}
 
-        closes = hist["Close"].values
+        closes  = hist["Close"].values.astype(float)
+        highs   = hist["High"].values.astype(float)
+        lows    = hist["Low"].values.astype(float)
+        volumes = hist["Volume"].values.astype(float) if "Volume" in hist.columns else None
+
         current_price = float(closes[-1])
+        n = len(closes)
 
-        # 5-day momentum
-        momentum_5d = (closes[-1] - closes[-5]) / closes[-5] if len(closes) >= 5 else 0
+        # ── 1. RSI-14 ──────────────────────────────────────────────────────
+        deltas = [closes[i] - closes[i-1] for i in range(1, n)]
+        gains  = [max(d, 0) for d in deltas]
+        losses = [max(-d, 0) for d in deltas]
+        window = 14
+        avg_gain = sum(gains[-window:]) / window if len(gains) >= window else (sum(gains) / len(gains) if gains else 1e-9)
+        avg_loss = sum(losses[-window:]) / window if len(losses) >= window else (sum(losses) / len(losses) if losses else 1e-9)
+        rs  = avg_gain / avg_loss if avg_loss > 1e-9 else 100
+        rsi = 100 - (100 / (1 + rs))
 
-        # 14-day RSI (simplified)
-        deltas = [closes[i] - closes[i-1] for i in range(1, len(closes))]
-        gains = [d for d in deltas if d > 0]
-        losses = [-d for d in deltas if d < 0]
-        avg_gain = sum(gains[-14:]) / 14 if len(gains) >= 14 else (sum(gains) / len(gains) if gains else 0)
-        avg_loss = sum(losses[-14:]) / 14 if len(losses) >= 14 else (sum(losses) / len(losses) if losses else 1)
-        rsi = 100 - (100 / (1 + avg_gain / avg_loss)) if avg_loss > 0 else 50
+        # Strong vote when clearly oversold/overbought, scaled by extremity
+        if rsi <= 30:
+            rsi_vote   = 1.0 * (1 + (30 - rsi) / 30)   # stronger near RSI=0
+            rsi_weight = 0.20
+        elif rsi >= 70:
+            rsi_vote   = -1.0 * (1 + (rsi - 70) / 30)
+            rsi_weight = 0.20
+        elif rsi < 45:
+            rsi_vote, rsi_weight = 0.4, 0.10
+        elif rsi > 55:
+            rsi_vote, rsi_weight = -0.4, 0.10
+        else:
+            rsi_vote, rsi_weight = 0.0, 0.05  # neutral zone
 
-        # Volatility (std of last 10 days returns)
-        returns = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(1, len(closes))]
-        volatility = float(sum(r**2 for r in returns[-10:]) / 10) ** 0.5 if returns else 0.01
+        # ── 2. MACD (12/26/9) ─────────────────────────────────────────────
+        def ema_calc(arr, span):
+            k = 2 / (span + 1)
+            e = arr[0]
+            for v in arr[1:]:
+                e = v * k + e * (1 - k)
+            return e
 
-        # Direction signal: momentum + RSI
-        # RSI < 30 = oversold = likely up, RSI > 70 = overbought = likely down
-        rsi_signal = 1 if rsi < 45 else (-1 if rsi > 55 else 0)
-        momentum_signal = 1 if momentum_5d > 0.002 else (-1 if momentum_5d < -0.002 else 0)
-        combined = rsi_signal + momentum_signal
+        ema12_series, ema26_series = [], []
+        e12 = closes[0]; e26 = closes[0]
+        k12 = 2 / 13; k26 = 2 / 27
+        for v in closes:
+            e12 = v * k12 + e12 * (1 - k12)
+            e26 = v * k26 + e26 * (1 - k26)
+            ema12_series.append(e12)
+            ema26_series.append(e26)
 
-        direction = "up" if combined >= 0 else "down"
+        macd_series = [ema12_series[i] - ema26_series[i] for i in range(n)]
+        # Signal line = 9-period EMA of MACD
+        if len(macd_series) >= 9:
+            sig = macd_series[0]
+            ks = 2 / 10
+            for v in macd_series:
+                sig = v * ks + sig * (1 - ks)
+            macd_val = macd_series[-1]
+            signal_val = sig
+            macd_hist  = macd_val - signal_val
+            # Crossover: is MACD above signal? Histogram positive?
+            prev_macd_hist = macd_series[-2] - signal_val if n >= 2 else 0
+            if macd_hist > 0 and prev_macd_hist <= 0:
+                macd_vote, macd_weight = 1.0, 0.20   # fresh bullish crossover
+            elif macd_hist < 0 and prev_macd_hist >= 0:
+                macd_vote, macd_weight = -1.0, 0.20  # fresh bearish crossover
+            elif macd_hist > 0:
+                macd_vote, macd_weight = 0.5, 0.15
+            else:
+                macd_vote, macd_weight = -0.5, 0.15
+        else:
+            macd_vote, macd_weight = 0.0, 0.0
 
-        # Confidence: higher when both signals agree and volatility is low
-        signal_strength = abs(combined) / 2  # 0 to 1
-        vol_penalty = min(volatility * 10, 0.3)
-        confidence = round(max(0.50, min(0.85, 0.55 + signal_strength * 0.25 - vol_penalty)), 4)
+        # ── 3. EMA 10 vs EMA 20 cross ────────────────────────────────────
+        ema10_val = ema12_series[-1]   # approximate with shorter span
+        # Proper EMA10
+        e10 = closes[0]; k10 = 2 / 11
+        for v in closes:
+            e10 = v * k10 + e10 * (1 - k10)
+        e20 = closes[0]; k20 = 2 / 21
+        for v in closes:
+            e20 = v * k20 + e20 * (1 - k20)
 
-        # Predicted price: current + expected move
-        expected_move_pct = momentum_5d * 0.3 + (0.003 if direction == "up" else -0.003)
+        if e10 > e20:
+            ema_vote, ema_weight = 0.6, 0.15
+        elif e10 < e20:
+            ema_vote, ema_weight = -0.6, 0.15
+        else:
+            ema_vote, ema_weight = 0.0, 0.05
+
+        # ── 4. Bollinger Band position (20-day) ──────────────────────────
+        if n >= 20:
+            bb_window = closes[-20:]
+            bb_mean   = sum(bb_window) / 20
+            bb_std    = (sum((v - bb_mean)**2 for v in bb_window) / 20) ** 0.5
+            bb_upper  = bb_mean + 2 * bb_std
+            bb_lower  = bb_mean - 2 * bb_std
+
+            # %B indicator: where is price within the bands (0=lower, 1=upper)
+            bb_range = bb_upper - bb_lower
+            pct_b = (current_price - bb_lower) / bb_range if bb_range > 1e-9 else 0.5
+
+            if pct_b <= 0.1:         # near/below lower band → likely bounce up
+                bb_vote, bb_weight = 1.0, 0.15
+            elif pct_b >= 0.9:       # near/above upper band → likely pullback
+                bb_vote, bb_weight = -1.0, 0.15
+            elif pct_b < 0.4:
+                bb_vote, bb_weight = 0.3, 0.08
+            elif pct_b > 0.6:
+                bb_vote, bb_weight = -0.3, 0.08
+            else:
+                bb_vote, bb_weight = 0.0, 0.05
+        else:
+            bb_vote, bb_weight = 0.0, 0.0
+
+        # ── 5. Short momentum (3-day) ─────────────────────────────────────
+        mom_3d = (closes[-1] - closes[-4]) / closes[-4] if n >= 4 else 0
+        if abs(mom_3d) > 0.03:
+            mom3_vote   = 1.0 if mom_3d > 0 else -1.0
+            mom3_weight = 0.12
+        elif abs(mom_3d) > 0.01:
+            mom3_vote   = 0.5 if mom_3d > 0 else -0.5
+            mom3_weight = 0.08
+        else:
+            mom3_vote, mom3_weight = 0.0, 0.04
+
+        # ── 6. Medium momentum (10-day) ───────────────────────────────────
+        mom_10d = (closes[-1] - closes[-11]) / closes[-11] if n >= 11 else 0
+        if abs(mom_10d) > 0.05:
+            mom10_vote   = 1.0 if mom_10d > 0 else -1.0
+            mom10_weight = 0.10
+        elif abs(mom_10d) > 0.02:
+            mom10_vote   = 0.5 if mom_10d > 0 else -0.5
+            mom10_weight = 0.07
+        else:
+            mom10_vote, mom10_weight = 0.0, 0.04
+
+        # ── 7. Volume trend (if available) ────────────────────────────────
+        if volumes is not None and len(volumes) >= 10 and volumes[-5:].sum() > 0:
+            recent_vol = float(volumes[-5:].mean())
+            prev_vol   = float(volumes[-10:-5].mean()) if len(volumes) >= 10 else recent_vol
+            vol_ratio  = recent_vol / prev_vol if prev_vol > 1e-9 else 1.0
+            price_up   = closes[-1] > closes[-6] if n >= 6 else True
+
+            if vol_ratio > 1.3 and price_up:
+                vol_vote, vol_weight = 0.7, 0.08    # strong buying volume
+            elif vol_ratio > 1.3 and not price_up:
+                vol_vote, vol_weight = -0.7, 0.08   # strong selling volume
+            elif vol_ratio < 0.7 and price_up:
+                vol_vote, vol_weight = 0.2, 0.04    # weak-volume rally (less reliable)
+            else:
+                vol_vote, vol_weight = 0.0, 0.02
+        else:
+            vol_vote, vol_weight = 0.0, 0.0
+
+        # ── Aggregate weighted score ──────────────────────────────────────
+        total_weight = (rsi_weight + macd_weight + ema_weight +
+                        bb_weight + mom3_weight + mom10_weight + vol_weight)
+
+        if total_weight < 1e-9:
+            total_weight = 1.0
+
+        weighted_score = (
+            rsi_vote   * rsi_weight   +
+            macd_vote  * macd_weight  +
+            ema_vote   * ema_weight   +
+            bb_vote    * bb_weight    +
+            mom3_vote  * mom3_weight  +
+            mom10_vote * mom10_weight +
+            vol_vote   * vol_weight
+        ) / total_weight   # range: roughly -1 to +1
+
+        direction = "up" if weighted_score >= 0 else "down"
+
+        # ── Confidence from signal consensus + volatility adjustment ──────
+        # Normalize score to [0, 1] where 1 = maximum agreement across all signals
+        signal_consensus = min(abs(weighted_score), 1.0)
+
+        # Volatility penalty: high volatility = less reliable signal
+        returns     = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(max(1, n-15), n)]
+        volatility  = (sum(r**2 for r in returns) / len(returns)) ** 0.5 if returns else 0.01
+        vol_penalty = min(volatility * 8, 0.20)   # capped at -20%
+
+        # Base: 0.50 when neutral, scales up to 0.82 when all signals agree
+        raw_confidence = 0.50 + signal_consensus * 0.32 - vol_penalty
+        confidence = round(max(0.51, min(0.84, raw_confidence)), 4)
+
+        # ── Predicted price ───────────────────────────────────────────────
+        # Use weighted_score to project expected move (dampened by volatility)
+        base_move_pct = weighted_score * 0.012   # max ~1.2% per day
+        expected_move_pct = base_move_pct + (mom_3d * 0.15)  # add some momentum persistence
         predicted_price = round(current_price * (1 + expected_move_pct), 4)
 
         target_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
+        base_result = {
+            "error": False,
+            "symbol": symbol,
+            "name": name,
+            "current_price": round(current_price, 4),
+            "direction": direction,
+            "confidence": confidence,
+            "model_name": "TechnicalAnalysis",
+            "modelName": "TechnicalAnalysis",
+            "task": task,
+            "prediction_date": datetime.now().strftime("%Y-%m-%d"),
+            "target_date": target_date,
+            "targetDate": target_date,
+            # Extra debug fields for transparency
+            "_signals": {
+                "rsi": round(rsi, 1),
+                "macd_histogram": round(macd_series[-1] - sig if len(macd_series) >= 9 else 0, 6),
+                "ema_cross": "bullish" if e10 > e20 else "bearish",
+                "momentum_3d_pct": round(mom_3d * 100, 2),
+                "momentum_10d_pct": round(mom_10d * 100, 2),
+                "weighted_score": round(weighted_score, 4),
+            }
+        }
+
         if task == "regression":
-            return {
-                "error": False,
-                "symbol": symbol,
-                "name": name,
-                "current_price": round(current_price, 4),
-                "predicted_price": predicted_price,
-                "predictedPrice": predicted_price,
-                "direction": direction,
-                "confidence": confidence,
-                "model_name": "TechnicalAnalysis",
-                "modelName": "TechnicalAnalysis",
-                "task": task,
-                "prediction_date": datetime.now().strftime("%Y-%m-%d"),
-                "target_date": target_date,
-                "targetDate": target_date,
-            }
-        else:
-            return {
-                "error": False,
-                "symbol": symbol,
-                "name": name,
-                "current_price": round(current_price, 4),
-                "direction": direction,
-                "confidence": confidence,
-                "model_name": "TechnicalAnalysis",
-                "modelName": "TechnicalAnalysis",
-                "task": task,
-                "prediction_date": datetime.now().strftime("%Y-%m-%d"),
-                "target_date": target_date,
-                "targetDate": target_date,
-            }
+            base_result["predicted_price"] = predicted_price
+            base_result["predictedPrice"]  = predicted_price
+
+        return base_result
+
     except Exception as e:
         return {"error": True, "symbol": symbol, "message": str(e)}
 

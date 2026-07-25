@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { FiMail, FiLock, FiEye, FiEyeOff } from 'react-icons/fi'
 import toast from 'react-hot-toast'
@@ -10,27 +10,15 @@ export default function Login() {
   const [showPw, setShowPw] = useState(false)
   const { login, loading, isAuthenticated } = useAuth()
   const navigate = useNavigate()
-  // Track whether the initial auth check has settled — prevents the "already logged in"
-  // toast firing on a completely fresh load where sessionStorage has a stale token.
-  const didMount = useRef(false)
 
-  useEffect(() => {
-    // Only redirect/toast if the user is authenticated AFTER mount has settled.
-    // On first render didMount.current is false, so we skip the toast.
-    if (didMount.current && isAuthenticated) {
-      toast('You are already logged in', { icon: 'ℹ️' })
-      navigate('/dashboard', { replace: true })
-    }
-    didMount.current = true
-  }, [isAuthenticated, navigate])
-
-  // If already authenticated on mount (same-session token), silently redirect without toast
-  useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/dashboard', { replace: true })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // If the user is already logged in (same browser session), redirect silently
+  // Use a ref so this only runs once on mount, without causing re-renders
+  const redirectedRef = useRef(false)
+  if (isAuthenticated && !redirectedRef.current) {
+    redirectedRef.current = true
+    // Use setTimeout so React finishes rendering before navigating
+    setTimeout(() => navigate('/dashboard', { replace: true }), 0)
+  }
 
   const handle = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }))
 
@@ -38,12 +26,12 @@ export default function Login() {
     e.preventDefault()
     if (!form.email || !form.password) return toast.error('Please fill all fields')
     const res = await login(form.email, form.password)
-    if (res.success) { 
-      setForm({ email: '', password: '' })
-      toast.success('Welcome back!')
-      navigate('/dashboard') 
+    if (res.success) {
+      toast.success('Welcome back! 🎉')
+      navigate('/dashboard', { replace: true })
+    } else {
+      toast.error(res.message || 'Login failed. Please check your credentials.')
     }
-    else toast.error(res.message)
   }
 
   return (
@@ -60,19 +48,40 @@ export default function Login() {
             <label className="form-label">Email Address</label>
             <div className="input-wrapper">
               <FiMail className="input-icon" />
-              <input className="form-input with-icon" type="email" name="email" placeholder="your@email.com" value={form.email} onChange={handle} required />
+              <input
+                className="form-input with-icon"
+                type="email"
+                name="email"
+                placeholder="your@email.com"
+                value={form.email}
+                onChange={handle}
+                required
+              />
             </div>
           </div>
           <div className="form-group">
             <label className="form-label">Password</label>
             <div className="input-wrapper">
               <FiLock className="input-icon" />
-              <input className="form-input with-icon with-icon-right" type={showPw ? 'text' : 'password'} name="password" placeholder="Enter your password" value={form.password} onChange={handle} required autoComplete="new-password" />
-              <button type="button" className="input-icon-right" onClick={() => setShowPw(!showPw)}>{showPw ? <FiEyeOff /> : <FiEye />}</button>
+              <input
+                className="form-input with-icon with-icon-right"
+                type={showPw ? 'text' : 'password'}
+                name="password"
+                placeholder="Enter your password"
+                value={form.password}
+                onChange={handle}
+                required
+                autoComplete="current-password"
+              />
+              <button type="button" className="input-icon-right" onClick={() => setShowPw(!showPw)}>
+                {showPw ? <FiEyeOff /> : <FiEye />}
+              </button>
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Link to="/forgot-password" style={{ fontSize: '0.85rem', color: 'var(--color-purple)' }}>Forgot Password?</Link>
+            <Link to="/forgot-password" style={{ fontSize: '0.85rem', color: 'var(--color-purple)' }}>
+              Forgot Password?
+            </Link>
           </div>
           <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
             {loading ? <><span className="spinner-sm" /> Signing in...</> : 'Sign In'}

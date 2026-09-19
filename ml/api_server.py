@@ -287,8 +287,9 @@ def _technical_prediction(symbol: str, name: str, task: str) -> dict:
         vol_penalty = min(volatility * 10, 0.3)
         confidence = round(max(0.50, min(0.85, 0.55 + signal_strength * 0.25 - vol_penalty)), 4)
 
-        # Predicted price: current + expected move
-        expected_move_pct = momentum_5d * 0.3 + (0.003 if direction == "up" else -0.003)
+        # Predicted price: current + expected move (bounded to realistic 1-day change: max ±2.5%)
+        raw_move = momentum_5d * 0.2 + (0.004 if direction == "up" else -0.004)
+        expected_move_pct = max(-0.025, min(0.025, raw_move))
         predicted_price = round(current_price * (1 + expected_move_pct), 4)
 
         target_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -330,11 +331,69 @@ def _technical_prediction(symbol: str, name: str, task: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# RETRAIN ENDPOINTS
+# ---------------------------------------------------------------------------
+import threading
+
+# Track retrain status
+_retrain_status = {"running": False, "last_run": None, "last_result": None}
+
+
+@app.route("/retrain/status", methods=["GET"])
+def retrain_status():
+    """Return current retrain status."""
+    return jsonify(_retrain_status)
+
+
+@app.route("/retrain/<symbol>", methods=["POST"])
+def retrain_symbol(symbol: str):
+    """Trigger a background retrain for a single asset."""
+    from retrain_pipeline import train_for_symbol
+    if symbol not in config.ALL_ASSETS:
+        return jsonify({"error": True, "message": f"Unknown symbol: {symbol}"}), 404
+    if _retrain_status["running"]:
+        return jsonify({"error": True, "message": "A retrain is already running"}), 409
+
+    def _run():
+        _retrain_status["running"] = True
+        try:
+            result = train_for_symbol(symbol)
+            _retrain_status["last_result"] = result
+            _retrain_status["last_run"] = datetime.now().isoformat()
+        finally:
+            _retrain_status["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"message": f"Retrain started for {symbol}", "status": "running"})
+
+
+@app.route("/retrain/all", methods=["POST"])
+def retrain_all_endpoint():
+    """Trigger a background retrain for ALL assets."""
+    from retrain_pipeline import retrain_all
+    if _retrain_status["running"]:
+        return jsonify({"error": True, "message": "A retrain is already running"}), 409
+
+    def _run():
+        _retrain_status["running"] = True
+        try:
+            results = retrain_all()
+            _retrain_status["last_result"] = results
+            _retrain_status["last_run"] = datetime.now().isoformat()
+        finally:
+            _retrain_status["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"message": "Retrain started for all assets", "status": "running"})
+
+
+# ---------------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    default_port = int(os.environ.get("PORT", 5001))
     parser = argparse.ArgumentParser(description="PriceOracle ML API Server")
-    parser.add_argument("--port", type=int, default=5001, help="Port to run the server on")
+    parser.add_argument("--port", type=int, default=default_port, help="Port to run the server on")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to bind to")
     parser.add_argument("--debug", action="store_true", help="Enable Flask debug mode")
     args = parser.parse_args()

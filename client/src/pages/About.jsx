@@ -4,7 +4,7 @@ export default function About() {
   return (
     <div className="page-wrapper">
       <AnimatedBackground />
-      <div className="container" style={{ padding: '80px 24px', maxWidth: '800px' }}>
+      <div className="container page-content-narrow">
         <div className="card">
           <div className="section-title text-center" style={{ textAlign: 'center', marginBottom: 40 }}>
             <h2>About <span className="text-gradient">PriceOracle</span></h2>

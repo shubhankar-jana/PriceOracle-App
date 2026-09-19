@@ -1,0 +1,27 @@
+{
+  "name": "priceoracle",
+  "version": "1.0.0",
+  "description": "PriceOracle - Multi-asset price prediction platform",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev --prefix client",
+    "dev:client": "npm run dev --prefix client",
+    "dev:server": "npm run dev --prefix server",
+    "client": "npm run dev --prefix client",
+    "server": "npm run dev --prefix server",
+    "start": "npm start --prefix server",
+    "build": "npm run build --prefix client",
+    "install:all": "npm install --prefix client && npm install --prefix server",
+    "install:client": "npm install --prefix client",
+    "install:server": "npm install --prefix server"
+  },
+  "keywords": [
+    "price-prediction",
+    "ml",
+    "finance",
+    "react",
+    "express"
+  ],
+  "author": "",
+  "license": "ISC"
+}

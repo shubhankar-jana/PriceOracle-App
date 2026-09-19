@@ -8,6 +8,8 @@ const config = require('./config/env');
 const priceUpdater = require('./jobs/priceUpdater');
 const predictionRunner = require('./jobs/predictionRunner');
 const alertChecker = require('./jobs/alertChecker');
+const actualPriceBackfiller = require('./jobs/actualPriceBackfiller');
+const modelRetrainer = require('./jobs/modelRetrainer');
 const priceService = require('./services/priceService');
 
 // ============================================================
@@ -93,6 +95,14 @@ const startServer = async () => {
     });
 
     alertChecker.init(io);
+
+    // Backfill actual prices for past predictions (runs nightly)
+    actualPriceBackfiller.init().catch(err => {
+      console.warn('[Server] ActualPriceBackfiller init warning:', err?.message || err);
+    });
+
+    // Weekly model retrainer
+    modelRetrainer.init();
 
     // Start listening
     server.listen(config.PORT, () => {

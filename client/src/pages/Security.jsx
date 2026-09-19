@@ -4,7 +4,7 @@ export default function Security() {
   return (
     <div className="page-wrapper">
       <AnimatedBackground />
-      <div className="container" style={{ padding: '80px 24px', maxWidth: '800px' }}>
+      <div className="container page-content-narrow">
         <div className="card">
           <div className="section-title text-center" style={{ textAlign: 'center', marginBottom: 40 }}>
             <h2>Security <span className="text-gradient">Policy</span></h2>

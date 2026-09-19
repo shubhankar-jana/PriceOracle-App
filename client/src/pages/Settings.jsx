@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FiUser, FiMail, FiPhone, FiLock, FiBell, FiCalendar } from 'react-icons/fi'
+import { FiUser, FiMail, FiPhone, FiLock, FiBell, FiCalendar, FiShield, FiInfo } from 'react-icons/fi'
 import toast from 'react-hot-toast'
 import useAuth from '../hooks/useAuth'
 import api from '../api/axios'
@@ -42,7 +42,7 @@ export default function Settings() {
           {/* Profile */}
           <div className="settings-card">
             <div className="settings-card-header">
-              <h3>👤 Profile Information</h3>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><FiUser size={18} /> Profile Information</h3>
               <p>Update your name, email and phone number</p>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -76,7 +76,7 @@ export default function Settings() {
           {/* Security */}
           <div className="settings-card">
             <div className="settings-card-header">
-              <h3>🔐 Security</h3>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><FiShield size={18} /> Security</h3>
               <p>Change your password</p>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -96,7 +96,7 @@ export default function Settings() {
           {/* Notifications */}
           <div className="settings-card">
             <div className="settings-card-header">
-              <h3>🔔 Notifications</h3>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><FiBell size={18} /> Notifications</h3>
               <p>Choose how you receive price alerts and updates</p>
             </div>
             <div className="toggle-group">
@@ -135,7 +135,7 @@ export default function Settings() {
           {/* Account Info */}
           <div className="settings-card">
             <div className="settings-card-header">
-              <h3>ℹ️ Account Information</h3>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><FiInfo size={18} /> Account Information</h3>
             </div>
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
               <div className="indicator-card" style={{ flex: 1 }}>
@@ -144,7 +144,7 @@ export default function Settings() {
               </div>
               <div className="indicator-card" style={{ flex: 1 }}>
                 <div className="indicator-label">Account Status</div>
-                <div className="indicator-value"><span className="badge badge-green">✓ Verified</span></div>
+                <div className="indicator-value"><span className="badge badge-green">Verified</span></div>
               </div>
               <div className="indicator-card" style={{ flex: 1 }}>
                 <div className="indicator-label">Watchlist Items</div>

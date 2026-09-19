@@ -1,9 +1,11 @@
 const rateLimit = require('express-rate-limit');
 
-// General API rate limiter: 100 requests per 15 minutes
+const isDev = process.env.NODE_ENV !== 'production';
+
+// General API rate limiter: 1000 requests per 15 mins in dev, 300 in prod
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: isDev ? 1000 : 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -12,10 +14,10 @@ const generalLimiter = rateLimit({
   },
 });
 
-// Auth rate limiter: 10 requests per 15 minutes
+// Auth rate limiter: 200 requests per 15 mins in dev, 50 in prod
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: isDev ? 200 : 50,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -25,3 +27,4 @@ const authLimiter = rateLimit({
 });
 
 module.exports = { generalLimiter, authLimiter };
+

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { FiSmartphone } from 'react-icons/fi'
 import toast from 'react-hot-toast'
 import useAuth from '../hooks/useAuth'
 import AnimatedBackground from '../components/AnimatedBackground'
@@ -34,7 +35,7 @@ export default function OTPVerify() {
 
   const submitOTP = async (code) => {
     const res = await verifyOTP(phone, code || otp.join(''))
-    if (res.success) { toast.success('Phone verified! Welcome 🎉'); navigate('/dashboard') }
+    if (res.success) { toast.success('Phone verified! Welcome'); navigate('/dashboard') }
     else toast.error(res.message)
   }
 
@@ -51,7 +52,7 @@ export default function OTPVerify() {
       <AnimatedBackground />
       <div className="auth-card">
         <div className="auth-header">
-          <div className="auth-logo" style={{ fontSize: '1.8rem' }}>📱</div>
+          <div className="auth-logo"><FiSmartphone size={32} /></div>
           <h2>Verify <span className="text-gradient">Your Phone</span></h2>
           <p>We sent a 6-digit code to <strong style={{ color: 'var(--text-primary)' }}>{phone}</strong></p>
         </div>

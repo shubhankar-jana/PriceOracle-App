@@ -1,9 +1,19 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { FiUser, FiMail, FiLock, FiPhone, FiEye, FiEyeOff } from 'react-icons/fi'
+import { FiUser, FiMail, FiLock, FiPhone, FiEye, FiEyeOff, FiTrendingUp } from 'react-icons/fi'
+import { FcGoogle } from 'react-icons/fc'
+import { GoogleLogin } from '@react-oauth/google'
 import toast from 'react-hot-toast'
 import useAuth from '../hooks/useAuth'
 import AnimatedBackground from '../components/AnimatedBackground'
+
+const rawGoogleId = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
+const isGoogleConfigured = Boolean(
+  rawGoogleId &&
+  !rawGoogleId.includes('dummy') &&
+  !rawGoogleId.includes('placeholder') &&
+  !rawGoogleId.includes('your-google-client-id')
+)
 
 const getStrength = pw => {
   if (!pw) return null
@@ -16,12 +26,12 @@ export default function Register() {
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', confirm: '' })
   const [showPw, setShowPw] = useState(false)
   const [agreed, setAgreed] = useState(false)
-  const { register, loading, isAuthenticated } = useAuth()
+  const { register, googleLogin, loading, isAuthenticated } = useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
     if (isAuthenticated) {
-      toast('You are already logged in', { icon: 'ℹ️' })
+      toast('You are already logged in')
       navigate('/dashboard', { replace: true })
     }
   }, [isAuthenticated, navigate])
@@ -38,11 +48,27 @@ export default function Register() {
     const res = await register(form.name, form.email, phone, form.password)
     if (res.success) {
       setForm({ name: '', email: '', phone: '', password: '', confirm: '' })
-      toast.success('Account created! Welcome to PriceOracle 🎉')
-      navigate('/dashboard') // Go directly — no OTP step
+      toast.success('Account created! Welcome to PriceOracle')
+      navigate('/dashboard')
     } else {
       toast.error(res.message)
     }
+  }
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    if (credentialResponse.credential) {
+      const res = await googleLogin(credentialResponse.credential)
+      if (res.success) {
+        toast.success('Welcome to PriceOracle!')
+        navigate('/dashboard')
+      } else {
+        toast.error(res.message)
+      }
+    }
+  }
+
+  const handleGoogleError = () => {
+    toast.error('Google Sign-Up was unsuccessful. Please check OAuth origin settings or try email/password.')
   }
 
   return (
@@ -50,10 +76,11 @@ export default function Register() {
       <AnimatedBackground />
       <div className="auth-card auth-card-wide">
         <div className="auth-header">
-          <div className="auth-logo">📈</div>
+          <div className="auth-logo"><FiTrendingUp size={28} /></div>
           <h2>Create <span className="text-gradient">Account</span></h2>
           <p>Join PriceOracle and start making smarter financial decisions</p>
         </div>
+
         <form className="auth-form" onSubmit={submit} autoComplete="off">
           <div className="form-group">
             <label className="form-label">Full Name</label>
@@ -90,7 +117,7 @@ export default function Register() {
               <div className="password-strength">
                 <div className="strength-bar"><div className={`strength-fill ${strength}`} /></div>
                 <div className={`strength-text ${strength}`}>
-                  {strength === 'weak' ? 'Weak — add numbers & uppercase' : strength === 'medium' ? 'Medium — getting better' : '✓ Strong password'}
+                  {strength === 'weak' ? 'Weak — add numbers & uppercase' : strength === 'medium' ? 'Medium — getting better' : 'Strong password'}
                 </div>
               </div>
             )}
@@ -110,6 +137,35 @@ export default function Register() {
             {loading ? <><span className="spinner-sm" /> Creating account...</> : 'Create Account'}
           </button>
         </form>
+
+        <div style={{ margin: '20px 0 16px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', width: '100%', margin: '0 0 16px', gap: '12px' }}>
+            <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }} />
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>OR</span>
+            <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+            {isGoogleConfigured ? (
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+                theme="filled_black"
+                shape="pill"
+                text="signup_with"
+              />
+            ) : (
+              <button
+                type="button"
+                className="btn-google-fallback"
+                onClick={() => toast('Google Sign-Up is not configured yet. Configure VITE_GOOGLE_CLIENT_ID in .env or create an account with email/password.', { icon: 'ℹ️' })}
+              >
+                <FcGoogle size={18} />
+                <span>Sign up with Google</span>
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="auth-footer">
           Already have an account? <Link to="/login">Sign in</Link>
         </div>

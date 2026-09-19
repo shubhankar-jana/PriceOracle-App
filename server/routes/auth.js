@@ -274,4 +274,89 @@ router.post('/logout', auth, async (req, res, next) => {
   }
 });
 
+// ============================================================
+// POST /api/auth/google
+// Exchange Google OAuth credential (JWT id_token from frontend)
+// for a PriceOracle JWT session
+// ============================================================
+const { OAuth2Client } = require('google-auth-library');
+
+router.post('/google', authLimiter, async (req, res, next) => {
+  try {
+    const { credential } = req.body;
+    if (!credential) {
+      return res.status(400).json({ success: false, message: 'Google credential is required' });
+    }
+
+    // Verify the Google ID token
+    const googleClientId = process.env.GOOGLE_CLIENT_ID;
+    if (!googleClientId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Google OAuth is not configured on this server. Please configure GOOGLE_CLIENT_ID or use email/password.',
+      });
+    }
+
+    const googleClient = new OAuth2Client(googleClientId);
+    let payload;
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: googleClientId,
+      });
+      payload = ticket.getPayload();
+    } catch (verifyErr) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid Google credential. Please try again.',
+      });
+    }
+
+    const { sub: googleId, email, name, picture } = payload;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Google account has no email address' });
+    }
+
+    // Find existing user by googleId or email, or create a new one
+    let user = await User.findOne({ $or: [{ googleId }, { email }] });
+
+    if (user) {
+      // Link google account if not already linked
+      if (!user.googleId) {
+        user.googleId = googleId;
+        if (picture && !user.avatar) user.avatar = picture;
+        await user.save();
+      }
+    } else {
+      // Create a new user from Google profile
+      user = await User.create({
+        name: name || email.split('@')[0],
+        email,
+        googleId,
+        avatar: picture || null,
+        phone: null,
+        passwordHash: null,
+        isVerified: true,
+      });
+    }
+
+    const token = generateToken(user._id);
+    const refreshToken = generateRefreshToken(user._id);
+    user.refreshToken = refreshToken;
+    await user.save();
+
+    const userResponse = user.toObject();
+    delete userResponse.passwordHash;
+
+    res.json({
+      success: true,
+      message: 'Google sign-in successful',
+      data: { token, refreshToken, user: userResponse },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;
+

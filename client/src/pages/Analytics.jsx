@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { FiBarChart2, FiTrendingUp, FiTrendingDown, FiActivity, FiCpu, FiPieChart, FiAlertTriangle, FiRefreshCw } from 'react-icons/fi'
 import api from '../api/axios'
 import { useSocket } from '../context/SocketContext'
 import { formatCurrency } from '../utils/helpers'
@@ -15,23 +16,33 @@ export default function Analytics() {
   const [assets, setAssets] = useState([])
   const [predictions, setPredictions] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  const fetchData = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const [resAssets, resPreds] = await Promise.all([
+        api.get('/assets'),
+        api.get('/predictions')
+      ])
+      setAssets(resAssets.data.data.assets || [])
+      setPredictions(resPreds.data.data.predictions || [])
+      setError(null)
+    } catch (err) {
+      console.error('Failed to fetch data', err)
+      const errorMsg = err.response?.data?.message || 
+        (err.code === 'ERR_NETWORK' || err.message === 'Network Error' 
+          ? 'Cannot connect to backend server. Please verify the API server is running on port 5000.'
+          : 'Failed to load analytics data.')
+      setError(errorMsg)
+      toast.error(errorMsg)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [resAssets, resPreds] = await Promise.all([
-          api.get('/assets'),
-          api.get('/predictions')
-        ])
-        setAssets(resAssets.data.data.assets || [])
-        setPredictions(resPreds.data.data.predictions || [])
-      } catch (err) {
-        console.error('Failed to fetch data', err)
-        toast.error('Failed to load analytics data')
-      } finally {
-        setLoading(false)
-      }
-    }
     fetchData()
   }, [])
 
@@ -116,12 +127,33 @@ export default function Analytics() {
     }
   }, [assets, predictions])
 
-  if (loading) {
+  if (loading && assets.length === 0) {
     return (
       <div className="page-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
           <span className="spinner" style={{ width: 40, height: 40, marginBottom: 16 }}></span>
           <p>Loading analytics engine...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error && assets.length === 0) {
+    return (
+      <div className="page-wrapper">
+        <div className="analytics-page">
+          <div className="card error-state-card" style={{ padding: '48px 24px', textAlign: 'center', margin: '40px auto', maxWidth: 600, border: '1px solid rgba(255, 82, 82, 0.25)', background: 'rgba(255, 82, 82, 0.04)', borderRadius: '16px' }}>
+            <div style={{ color: 'var(--danger)', marginBottom: '16px', display: 'inline-flex', padding: '16px', borderRadius: '50%', background: 'rgba(255, 82, 82, 0.1)' }}>
+              <FiAlertTriangle size={36} />
+            </div>
+            <h3 style={{ fontSize: '1.3rem', marginBottom: '8px', color: 'var(--text-primary)' }}>Unable to Load Analytics Data</h3>
+            <p style={{ color: 'var(--text-secondary)', maxWidth: '480px', margin: '0 auto 20px', fontSize: '0.95rem' }}>
+              {error}
+            </p>
+            <button className="btn btn-primary" onClick={fetchData} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+              <FiRefreshCw size={14} /> Retry Loading Analytics
+            </button>
+          </div>
         </div>
       </div>
     )
@@ -139,7 +171,7 @@ export default function Analytics() {
 
         {/* Heatmap */}
         <div className="card mb-24">
-          <div className="card-header"><span className="card-title">📊 Market Heatmap — 24h Performance</span></div>
+          <div className="card-header"><span className="card-title"><FiBarChart2 size={16} style={{marginRight:6}} />Market Heatmap — 24h Performance</span></div>
           <div className="heatmap-grid">
             {HEATMAP.map(t => (
               <div key={t.symbol} className={`heatmap-tile ${t.change > 0.3 ? 'positive' : t.change < -0.3 ? 'negative' : 'neutral'}`}
@@ -154,10 +186,10 @@ export default function Analytics() {
         <div className="analytics-grid">
           {/* Top Movers */}
           <div className="card">
-            <div className="card-header"><span className="card-title">🚀 Top Movers</span></div>
+            <div className="card-header"><span className="card-title"><FiActivity size={16} style={{marginRight:6}} />Top Movers</span></div>
             <div className="movers-grid">
               <div>
-                <h4 style={{ color: 'var(--success)', marginBottom: 16, fontSize: '0.9rem' }}>📈 Top Gainers</h4>
+                <h4 style={{ color: 'var(--success)', marginBottom: 16, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: 6 }}><FiTrendingUp size={14} /> Top Gainers</h4>
                 {GAINERS.length > 0 ? GAINERS.map((g, i) => (
                   <div key={g.symbol} className="mover-item">
                     <div className="mover-info">
@@ -175,7 +207,7 @@ export default function Analytics() {
                 )) : <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No significant gainers.</div>}
               </div>
               <div>
-                <h4 style={{ color: 'var(--danger)', marginBottom: 16, fontSize: '0.9rem' }}>📉 Top Losers</h4>
+                <h4 style={{ color: 'var(--danger)', marginBottom: 16, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: 6 }}><FiTrendingDown size={14} /> Top Losers</h4>
                 {LOSERS.length > 0 ? LOSERS.map((l, i) => (
                   <div key={l.symbol} className="mover-item">
                     <div className="mover-info">
@@ -197,7 +229,7 @@ export default function Analytics() {
 
           {/* Sentiment Gauge */}
           <div className="card">
-            <div className="card-header"><span className="card-title">🧠 Market Sentiment</span><span className="badge badge-cyan">LIVE API</span></div>
+            <div className="card-header"><span className="card-title"><FiActivity size={16} style={{marginRight:6}} />Market Sentiment</span><span className="badge badge-cyan">LIVE API</span></div>
             <div className="sentiment-gauge">
               <svg viewBox="0 0 200 110" style={{ width: '100%', maxWidth: 260 }}>
                 <defs>
@@ -231,7 +263,7 @@ export default function Analytics() {
         <div className="analytics-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', display: 'grid', gap: '24px', marginTop: 24 }}>
           {/* Pie Chart */}
           <div className="card">
-            <div className="card-header"><span className="card-title">🥧 Asset Distribution</span></div>
+            <div className="card-header"><span className="card-title"><FiPieChart size={16} style={{marginRight:6}} />Asset Distribution</span></div>
             <div style={{ height: 300 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -254,7 +286,7 @@ export default function Analytics() {
 
           {/* Bar Chart */}
           <div className="card">
-            <div className="card-header"><span className="card-title">📊 Top Prediction Confidence</span></div>
+            <div className="card-header"><span className="card-title"><FiBarChart2 size={16} style={{marginRight:6}} />Top Prediction Confidence</span></div>
             <div style={{ height: 300 }}>
               {BAR_DATA.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
@@ -267,7 +299,7 @@ export default function Analytics() {
                 </ResponsiveContainer>
               ) : (
                 <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
-                  <span style={{ fontSize: '2rem' }}>🤖</span>
+                  <FiCpu size={36} style={{ color: 'var(--text-muted)' }} />
                   <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No ML predictions available yet.</span>
                   <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Predictions run every 6 hours automatically.</span>
                 </div>

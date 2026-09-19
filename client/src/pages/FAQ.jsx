@@ -30,7 +30,7 @@ export default function FAQ() {
   return (
     <div className="page-wrapper">
       <AnimatedBackground />
-      <div className="container" style={{ padding: '80px 24px', maxWidth: '800px' }}>
+      <div className="container page-content-narrow">
         <div className="section-title" style={{ textAlign: 'center', marginBottom: 40 }}>
           <h2>Frequently Asked <span className="text-gradient">Questions</span></h2>
           <p>Everything you need to know about PriceOracle.</p>

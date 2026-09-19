@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FiPlus, FiTrash2, FiBell } from 'react-icons/fi'
+import { FiPlus, FiTrash2, FiBell, FiEye, FiZap } from 'react-icons/fi'
 import PriceCard from '../components/PriceCard'
 import toast from 'react-hot-toast'
 import api from '../api/axios'
@@ -86,7 +86,7 @@ export default function Watchlist() {
         <div className="page-header"><h1 className="page-title">My <span className="text-gradient">Watchlist</span></h1></div>
         <div className="card">
           <div className="empty-state">
-            <div className="empty-icon">👁️</div>
+            <div className="empty-icon"><FiEye size={36} /></div>
             <h3>Your watchlist is empty</h3>
             <p>Add assets from the Dashboard to track them here and set price alerts</p>
             <button className="btn btn-primary" onClick={() => navigate('/dashboard')}><FiPlus /> Browse Assets</button>
@@ -132,7 +132,7 @@ export default function Watchlist() {
 
         {/* Active Alerts */}
         <div className="card">
-          <div className="card-header"><span className="card-title">🔔 Price Alerts</span><span className="badge badge-purple">{alerts.filter(a => a.isActive).length} active</span></div>
+          <div className="card-header"><span className="card-title"><FiBell size={15} style={{marginRight:6}} />Price Alerts</span><span className="badge badge-purple">{alerts.filter(a => a.isActive).length} active</span></div>
           {alerts.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>No alerts set yet. Use the buttons above to create alerts.</div>
           ) : alerts.map(alert => (
@@ -143,7 +143,7 @@ export default function Watchlist() {
               </div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <span className={`alert-status ${alert.isTriggered ? 'triggered' : 'active'}`}>
-                  {alert.isTriggered ? '⚡ Triggered' : '● Active'}
+                  {alert.isTriggered ? <><FiZap size={12} /> Triggered</> : '● Active'}
                 </span>
                 <button className="btn btn-glass btn-sm" onClick={() => deleteAlert(alert._id)}><FiTrash2 size={13} /></button>
               </div>

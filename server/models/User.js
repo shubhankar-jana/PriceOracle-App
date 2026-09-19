@@ -13,14 +13,27 @@ const userSchema = new mongoose.Schema({
     lowercase: true,
     trim: true,
   },
+  // Phone is optional for Google OAuth users
   phone: {
     type: String,
-    required: [true, 'Phone number is required'],
-    unique: true,
+    sparse: true,
+    default: null,
   },
+  // Password is optional for Google OAuth users
   passwordHash: {
     type: String,
-    required: [true, 'Password is required'],
+    default: null,
+  },
+  // Google OAuth
+  googleId: {
+    type: String,
+    sparse: true,
+    unique: true,
+    default: null,
+  },
+  avatar: {
+    type: String,
+    default: null,
   },
   isVerified: {
     type: Boolean,
@@ -49,10 +62,11 @@ const userSchema = new mongoose.Schema({
   },
 });
 
-// Pre-save hook: hash password only if passwordHash is modified
+// Pre-save hook: hash password only if passwordHash is modified and is not already a hash
 userSchema.pre('save', async function (next) {
-  if (!this.isModified('passwordHash')) return next();
-
+  if (!this.isModified('passwordHash') || !this.passwordHash) return next();
+  // Avoid double-hashing
+  if (this.passwordHash.startsWith('$2b$') || this.passwordHash.startsWith('$2a$')) return next();
   try {
     const salt = await bcrypt.genSalt(12);
     this.passwordHash = await bcrypt.hash(this.passwordHash, salt);
@@ -64,6 +78,7 @@ userSchema.pre('save', async function (next) {
 
 // Method: compare candidate password with stored hash
 userSchema.methods.comparePassword = async function (candidatePassword) {
+  if (!this.passwordHash) return false;
   return bcrypt.compare(candidatePassword, this.passwordHash);
 };
 

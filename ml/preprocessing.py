@@ -121,12 +121,14 @@ def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 def add_target(df: pd.DataFrame, horizon: int = config.PREDICTION_HORIZON) -> pd.DataFrame:
     """
-    Creates two possible targets:
-      - target_price: the actual close price N days ahead (regression)
+    Creates targets:
+      - target_price: the actual close price N days ahead (regression dollar)
+      - target_return: the fractional percentage return N days ahead (stationary regression)
       - target_direction: 1 if price goes up, 0 if down (classification)
     """
     df = df.copy()
     df["target_price"] = df["close"].shift(-horizon)
+    df["target_return"] = (df["target_price"] - df["close"]) / df["close"]
     df["target_direction"] = (df["target_price"] > df["close"]).astype(int)
     return df
 

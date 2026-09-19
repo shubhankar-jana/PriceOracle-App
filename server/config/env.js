@@ -18,6 +18,9 @@ module.exports = {
   VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY,
   VAPID_EMAIL: process.env.VAPID_EMAIL || 'mailto:admin@priceoracle.com',
   ML_API_URL: process.env.ML_API_URL || 'http://localhost:5001',
+  CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:5173',
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
   NEWSAPI_KEY: process.env.NEWSAPI_KEY,
   FRED_API_KEY: process.env.FRED_API_KEY,
 };

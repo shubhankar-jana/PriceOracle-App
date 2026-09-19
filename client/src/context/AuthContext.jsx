@@ -1,6 +1,5 @@
 import { createContext, useState, useEffect, useCallback } from 'react'
 import api from '../api/axios'
-import { useNavigate } from 'react-router-dom'
 
 const storage = {
   get: (key) => { try { return sessionStorage.getItem(key) } catch { return null } },
@@ -27,6 +26,19 @@ export function AuthProvider({ children }) {
     if (refresh) storage.set('refreshToken', refresh)
   }
 
+  const getErrorMessage = (err, defaultMsg) => {
+    if (err.response?.status === 429) {
+      return 'Too many attempts. Please wait a minute and try again.'
+    }
+    if (err.response?.data?.message) {
+      return err.response.data.message
+    }
+    if (err.message === 'Network Error') {
+      return 'Cannot connect to authentication server. Please check backend.'
+    }
+    return defaultMsg
+  }
+
   const login = async (email, password) => {
     setLoading(true)
     try {
@@ -34,7 +46,18 @@ export function AuthProvider({ children }) {
       saveAuth(data.data.user, data.data.token, data.data.refreshToken)
       return { success: true }
     } catch (err) {
-      return { success: false, message: err.response?.data?.message || 'Login failed' }
+      return { success: false, message: getErrorMessage(err, 'Login failed') }
+    } finally { setLoading(false) }
+  }
+
+  const googleLogin = async (credential) => {
+    setLoading(true)
+    try {
+      const { data } = await api.post('/auth/google', { credential })
+      saveAuth(data.data.user, data.data.token, data.data.refreshToken)
+      return { success: true }
+    } catch (err) {
+      return { success: false, message: getErrorMessage(err, 'Google sign-in failed') }
     } finally { setLoading(false) }
   }
 
@@ -47,7 +70,7 @@ export function AuthProvider({ children }) {
       }
       return { success: true, data: data.data }
     } catch (err) {
-      return { success: false, message: err.response?.data?.message || 'Registration failed' }
+      return { success: false, message: getErrorMessage(err, 'Registration failed') }
     } finally { setLoading(false) }
   }
 
@@ -127,7 +150,7 @@ export function AuthProvider({ children }) {
   }, [token, logout]);
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, verifyOTP, forgotPassword, resetPassword, logout, updateProfile, isAuthenticated: !!token }}>
+    <AuthContext.Provider value={{ user, token, loading, login, googleLogin, register, verifyOTP, forgotPassword, resetPassword, logout, updateProfile, isAuthenticated: !!token }}>
       {children}
     </AuthContext.Provider>
   )

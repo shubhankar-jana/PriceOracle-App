@@ -74,8 +74,7 @@ export default function ForgotPassword() {
           /* Show the reset code directly on screen */
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginTop: 8 }}>
             <div style={{ background: 'rgba(102,126,234,0.08)', border: '1px solid rgba(102,126,234,0.25)', borderRadius: 'var(--radius)', padding: 24, textAlign: 'center' }}>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 16 }}>Your password reset code:</p>
-              <div style={{ fontSize: '2.4rem', fontWeight: 800, letterSpacing: '0.4em', color: 'var(--text-primary)', fontFamily: 'monospace', marginBottom: 16 }}>
+              <div style={{ fontSize: 'clamp(1.6rem, 6vw, 2.2rem)', fontWeight: 800, letterSpacing: 'clamp(0.15em, 2vw, 0.3em)', color: 'var(--text-primary)', fontFamily: 'monospace', marginBottom: 16 }}>
                 {resetCode}
               </div>
               <button className="btn btn-glass btn-sm" onClick={copyCode} style={{ gap: 6 }}>

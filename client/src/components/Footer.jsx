@@ -1,21 +1,36 @@
-import { Link } from 'react-router-dom'
-import { FiGithub, FiLinkedin, FiInstagram, FiFacebook } from 'react-icons/fi'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { FiGithub, FiLinkedin, FiInstagram, FiFacebook, FiTrendingUp, FiHeart } from 'react-icons/fi'
 
 export default function Footer() {
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  const scrollToAnchor = (e, anchor) => {
+    e.preventDefault()
+    if (location.pathname === '/') {
+      const el = document.getElementById(anchor)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    } else {
+      navigate(`/#${anchor}`)
+    }
+  }
+
   return (
     <footer className="footer">
       <div className="footer-grid">
         <div className="footer-brand">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
-            <div className="logo-icon" style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--gradient-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>📈</div>
+            <div className="logo-icon" style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--gradient-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <FiTrendingUp color="#ffffff" size={18} />
+            </div>
             <span style={{ fontSize: '1.2rem', fontWeight: 800 }} className="text-gradient">PriceOracle</span>
           </div>
           <p>AI-powered multi-asset price prediction platform. Analyze stocks, commodities, crypto, and currencies with advanced ML models.</p>
           <div className="footer-social">
-            <a href="https://github.com/shubhankar-jana" className="social-icon" aria-label="GitHub"><FiGithub /></a>
-            <a href="https://www.linkedin.com/in/shubhankar-jana" className="social-icon" aria-label="LinkedIn"><FiLinkedin /></a>
+            <a href="https://github.com/shubhankar-jana" target="_blank" rel="noreferrer" className="social-icon" aria-label="GitHub"><FiGithub /></a>
+            <a href="https://www.linkedin.com/in/shubhankar-jana" target="_blank" rel="noreferrer" className="social-icon" aria-label="LinkedIn"><FiLinkedin /></a>
             <a href="#" className="social-icon" aria-label="Instagram"><FiInstagram /></a>
-            <a href="https://www.facebook.com/profile.php?id=100074474074075&locale=hi_IN" className="social-icon" aria-label="Facebook"><FiFacebook /></a>
+            <a href="https://www.facebook.com/profile.php?id=100074474074075&locale=hi_IN" target="_blank" rel="noreferrer" className="social-icon" aria-label="Facebook"><FiFacebook /></a>
           </div>
         </div>
 
@@ -32,10 +47,10 @@ export default function Footer() {
         <div className="footer-col">
           <h4>Company</h4>
           <ul>
-            <li><Link to="/about">About</Link></li>
-            <li><Link to="/contact">Contact</Link></li>
-            <li><Link to="/faq">FAQ</Link></li>
-            <li><Link to="/blog">Blog</Link></li>
+            <li><a href="/#about" onClick={e => scrollToAnchor(e, 'about')}>About</a></li>
+            <li><a href="/#contact" onClick={e => scrollToAnchor(e, 'contact')}>Contact</a></li>
+            <li><a href="/#faq" onClick={e => scrollToAnchor(e, 'faq')}>FAQ</a></li>
+            <li><a href="/#blog" onClick={e => scrollToAnchor(e, 'blog')}>Blog</a></li>
           </ul>
         </div>
 
@@ -51,8 +66,8 @@ export default function Footer() {
 
       <div className="footer-bottom">
         <span>© 2026 PriceOracle. All rights reserved.</span>
-        <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-          Built with ❤️ | Powered by ML
+        <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          Built with <FiHeart size={12} style={{ color: '#ff5252' }} /> | Powered by ML
         </span>
       </div>
     </footer>

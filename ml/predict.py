@@ -192,8 +192,17 @@ def predict_single(symbol: str, task: str = "regression") -> dict:
     current_price = float(df["close"].iloc[-1])
 
     if task == "regression":
-        predicted_price = float(model.predict(X_scaled)[0])
-        direction = "up" if predicted_price > current_price else "down"
+        raw_pred = float(model.predict(X_scaled)[0])
+        # If the model was trained on returns (value is fractional, e.g. between -0.5 and 0.5):
+        if abs(raw_pred) < 0.5:
+            predicted_return = max(-0.06, min(0.06, raw_pred))
+            predicted_price = current_price * (1 + predicted_return)
+        else:
+            # Model outputted absolute price — ensure it cannot deviate more than 5% from current market price
+            max_deviation = current_price * 0.05
+            predicted_price = max(current_price - max_deviation, min(current_price + max_deviation, raw_pred))
+
+        direction = "up" if predicted_price >= current_price else "down"
         change_pct = ((predicted_price - current_price) / current_price) * 100
 
         return {

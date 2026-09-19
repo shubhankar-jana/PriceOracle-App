@@ -1,4 +1,4 @@
-import { FiArrowUp, FiArrowDown, FiMinus, FiPlus } from 'react-icons/fi'
+import { FiArrowUp, FiArrowDown, FiMinus, FiPlus, FiX } from 'react-icons/fi'
 import { getCategoryIcon, getCategoryClass, formatCurrency, formatPercent, getChangeColor } from '../utils/helpers'
 
 export default function PriceCard({ asset, onClick, onRemove, showRemove, onAddToWatchlist }) {
@@ -11,7 +11,7 @@ export default function PriceCard({ asset, onClick, onRemove, showRemove, onAddT
   return (
     <div className="price-card" onClick={onClick} role="button" tabIndex={0} onKeyDown={e => e.key === 'Enter' && onClick?.()}>
       {showRemove && (
-        <button className="price-card-remove" onClick={e => { e.stopPropagation(); onRemove?.() }}>✕</button>
+        <button className="price-card-remove" onClick={e => { e.stopPropagation(); onRemove?.() }}><FiX size={14} /></button>
       )}
       {onAddToWatchlist && !showRemove && (
         <button className="price-card-add-watchlist" onClick={e => { e.stopPropagation(); onAddToWatchlist(symbol) }} title="Add to watchlist">

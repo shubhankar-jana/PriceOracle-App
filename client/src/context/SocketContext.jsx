@@ -10,10 +10,18 @@ export const SocketProvider = ({ children }) => {
   const [connected, setConnected] = useState(false)
 
   useEffect(() => {
-    // Assuming backend runs on port 5000, Vite dev server proxies to it or we connect directly
-    const socketInstance = io('http://localhost:5000', {
-      transports: ['websocket'],
-      reconnectionAttempts: 5
+    // Determine socket server URL
+    let socketUrl = import.meta.env.VITE_SOCKET_URL
+    if (!socketUrl && import.meta.env.VITE_API_URL) {
+      socketUrl = import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '')
+    }
+    if (!socketUrl) {
+      socketUrl = 'http://localhost:5000'
+    }
+
+    const socketInstance = io(socketUrl, {
+      transports: ['polling', 'websocket'],
+      reconnectionAttempts: 5,
     })
 
     socketInstance.on('connect', () => {

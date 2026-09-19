@@ -21,7 +21,7 @@ export default function AssetTable({ assets = [], task = 'regression', onRowClic
 
   const SortIcon = ({ col }) => col === sortKey
     ? (sortDir === 1 ? <FiChevronUp className="sort-icon" /> : <FiChevronDown className="sort-icon" />)
-    : <span className="sort-icon">⇅</span>
+    : <span className="sort-icon" style={{ opacity: 0.35, display: 'inline-flex', verticalAlign: 'middle' }}><FiChevronDown size={12} /></span>
 
   return (
     <div className="table-wrapper">
@@ -60,8 +60,8 @@ export default function AssetTable({ assets = [], task = 'regression', onRowClic
                 <td><span className="badge badge-purple" style={{ fontSize: '0.7rem' }}>{asset.category}</span></td>
                 <td>
                   {asset.latestPrediction ? (
-                    <span className={`direction-badge ${asset.latestPrediction.direction}`}>
-                      {asset.latestPrediction.direction === 'up' ? '↑' : '↓'} {task === 'regression' ? formatCurrency(asset.latestPrediction.predictedPrice) : asset.latestPrediction.direction.toUpperCase()}
+                    <span className={`direction-badge ${asset.latestPrediction.direction}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                      {asset.latestPrediction.direction === 'up' ? <FiArrowUp size={11} /> : <FiArrowDown size={11} />} {task === 'regression' ? formatCurrency(asset.latestPrediction.predictedPrice) : asset.latestPrediction.direction.toUpperCase()}
                     </span>
                   ) : <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>}
                 </td>

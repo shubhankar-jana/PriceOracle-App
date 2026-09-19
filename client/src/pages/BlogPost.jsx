@@ -26,8 +26,8 @@ export default function BlogPost() {
   return (
     <div className="page-wrapper">
       <AnimatedBackground />
-      <div className="container" style={{ padding: '40px 24px 80px', maxWidth: '800px' }}>
-        <button className="btn btn-glass btn-sm" onClick={() => navigate('/blog')} style={{ marginBottom: 30 }}>
+      <div className="container page-content-narrow">
+        <button className="btn btn-glass btn-sm" onClick={() => navigate('/blog')} style={{ marginBottom: 20 }}>
           <FiArrowLeft /> Back to Blog
         </button>
 

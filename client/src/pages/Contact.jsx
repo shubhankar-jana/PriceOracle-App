@@ -23,7 +23,7 @@ export default function Contact() {
   return (
     <div className="page-wrapper">
       <AnimatedBackground />
-      <div className="container" style={{ padding: '80px 24px', maxWidth: '600px' }}>
+      <div className="container page-content-compact">
         <div className="card">
           <div className="section-title text-center" style={{ textAlign: 'center', marginBottom: 40 }}>
             <h2>Get In <span className="text-gradient">Touch</span></h2>

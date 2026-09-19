@@ -7,13 +7,13 @@ export default function Blog() {
   return (
     <div className="page-wrapper">
       <AnimatedBackground />
-      <div className="container" style={{ padding: '80px 24px', maxWidth: '1000px' }}>
-        <div className="section-title" style={{ textAlign: 'center', marginBottom: 50 }}>
+      <div className="container page-content-medium">
+        <div className="section-title" style={{ textAlign: 'center', marginBottom: 40 }}>
           <h2>PriceOracle <span className="text-gradient">Blog</span></h2>
           <p>Insights, updates, and deep dives into AI and trading.</p>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: '20px' }}>
           {posts.map((post, i) => (
             <div key={i} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

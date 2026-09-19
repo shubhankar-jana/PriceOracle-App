@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FiTrendingUp, FiTrendingDown, FiActivity, FiGrid, FiPlus } from 'react-icons/fi'
+import { FiTrendingUp, FiTrendingDown, FiActivity, FiGrid, FiPlus, FiGlobe, FiLayers, FiCpu, FiDollarSign, FiBarChart2, FiAlertTriangle, FiRefreshCw } from 'react-icons/fi'
 import PriceCard from '../components/PriceCard'
 import { InlineLoader } from '../components/Loader'
 import api from '../api/axios'
@@ -20,11 +20,18 @@ export default function Dashboard() {
   const [assets, setAssets] = useState([])
   const [predictions, setPredictions] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [lastUpdated, setLastUpdated] = useState(new Date())
   const [addingWatchlist, setAddingWatchlist] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   const fetchData = async (isInitial = false) => {
-    if (isInitial) setLoading(true)
+    if (isInitial) {
+      setLoading(true)
+      setError(null)
+    } else {
+      setRefreshing(true)
+    }
     try {
       const [resAssets, resPreds] = await Promise.all([
         api.get('/assets'),
@@ -32,9 +39,17 @@ export default function Dashboard() {
       ])
       setAssets(resAssets.data.data.assets || [])
       setPredictions(resPreds.data.data.predictions || [])
+      setError(null)
       setLastUpdated(new Date())
     } catch (err) {
       console.error('Failed to fetch data', err)
+      const errorMsg = err.response?.data?.message || 
+        (err.code === 'ERR_NETWORK' || err.message === 'Network Error' 
+          ? 'Cannot connect to backend server. Please verify the API server is running on port 5000.'
+          : err.response?.status === 429
+          ? 'Too many requests. Please wait a moment before refreshing.'
+          : 'Failed to load live price data from server.')
+      setError(errorMsg)
       if (isInitial) {
         setAssets([])
       } else {
@@ -42,6 +57,7 @@ export default function Dashboard() {
       }
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
@@ -138,8 +154,31 @@ export default function Dashboard() {
               Live • Last updated {now}
             </div>
           </div>
-
+          <button
+            className="btn btn-glass btn-sm"
+            onClick={() => fetchData(false)}
+            disabled={refreshing || loading}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <FiRefreshCw size={14} className={refreshing ? 'spin' : ''} />
+            {refreshing ? 'Updating...' : 'Refresh Prices'}
+          </button>
         </div>
+
+        {/* Warning Banner when cached data is shown after failed background refresh */}
+        {error && assets.length > 0 && (
+          <div className="error-banner-top" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', background: 'rgba(255, 82, 82, 0.12)', border: '1px solid rgba(255, 82, 82, 0.3)', borderRadius: '10px', marginBottom: 20, color: 'var(--text-primary)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <FiAlertTriangle size={18} style={{ color: 'var(--danger)', flexShrink: 0 }} />
+              <span style={{ fontSize: '0.9rem' }}>
+                <strong>Live sync error:</strong> {error}. Showing last known prices.
+              </span>
+            </div>
+            <button className="btn btn-glass btn-sm" onClick={() => fetchData(false)} disabled={refreshing}>
+              <FiRefreshCw size={12} className={refreshing ? 'spin' : ''} /> Retry
+            </button>
+          </div>
+        )}
 
         {/* Market Summary */}
         <div className="market-summary">
@@ -180,18 +219,36 @@ export default function Dashboard() {
         {/* Category Filter */}
         <div className="category-tabs">
           {CATEGORIES.map(c => (
-            <button key={c} className={`tab-btn${cat === c ? ' active' : ''}`} onClick={() => setCat(c)}>
-              {c === 'All' ? '🌐 All' : c === 'stock' ? '📈 Stocks' : c === 'commodity' ? '🥇 Commodities' : c === 'crypto' ? '₿ Crypto' : c === 'currency' ? '💱 Currencies' : '📊 Indexes'}
+            <button key={c} className={`tab-btn${cat === c ? ' active' : ''}`} onClick={() => setCat(c)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {c === 'All' ? <><FiGlobe size={14} /> All</> : c === 'stock' ? <><FiTrendingUp size={14} /> Stocks</> : c === 'commodity' ? <><FiLayers size={14} /> Commodities</> : c === 'crypto' ? <><FiCpu size={14} /> Crypto</> : c === 'currency' ? <><FiDollarSign size={14} /> Currencies</> : <><FiBarChart2 size={14} /> Indexes</>}
             </button>
           ))}
         </div>
 
         {/* Assets Grid */}
-        {loading && assets.length === 0 ? <InlineLoader /> : assets.length === 0 ? (
+        {loading && assets.length === 0 ? (
+          <InlineLoader />
+        ) : error && assets.length === 0 ? (
+          <div className="card error-state-card" style={{ padding: '48px 24px', textAlign: 'center', margin: '24px 0', border: '1px solid rgba(255, 82, 82, 0.25)', background: 'rgba(255, 82, 82, 0.04)', borderRadius: '16px' }}>
+            <div style={{ color: 'var(--danger)', marginBottom: '16px', display: 'inline-flex', padding: '16px', borderRadius: '50%', background: 'rgba(255, 82, 82, 0.1)' }}>
+              <FiAlertTriangle size={36} />
+            </div>
+            <h3 style={{ fontSize: '1.3rem', marginBottom: '8px', color: 'var(--text-primary)' }}>Unable to Load Price Data</h3>
+            <p style={{ color: 'var(--text-secondary)', maxWidth: '480px', margin: '0 auto 20px', fontSize: '0.95rem' }}>
+              {error}
+            </p>
+            <button className="btn btn-primary" onClick={() => fetchData(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+              <FiRefreshCw size={14} /> Retry Loading Data
+            </button>
+          </div>
+        ) : assets.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-icon">⚠️</div>
+            <div className="empty-icon"><FiAlertTriangle size={36} /></div>
             <h3>No Live Data</h3>
-            <p>Ensure the ML pipeline is running and connected.</p>
+            <p>Ensure the backend and ML pipeline are running and connected.</p>
+            <button className="btn btn-primary" onClick={() => fetchData(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+              <FiRefreshCw size={14} /> Refresh Data
+            </button>
           </div>
         ) : (
           <div className="assets-grid">

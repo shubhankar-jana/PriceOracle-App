@@ -25,36 +25,24 @@ export default function AssetDetail() {
   const [priceHistory, setPriceHistory] = useState([])
   const [predictionHistory, setPredictionHistory] = useState([])
   const [loading, setLoading] = useState(true)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState(false)
   const [fetchError, setFetchError] = useState(false)
 
-  const fetchData = async () => {
-    setFetchError(false)
-    setLoading(true)
+  const encodedSym = encodeURIComponent(symbol || '')
+
+  const fetchHistory = async () => {
+    if (!symbol) return
+    setHistoryLoading(true)
+    setHistoryError(false)
     try {
-      // Fetch asset details and predictions together
-      const assetRes = await api.get(`/assets/${symbol}`)
-      const assetData = assetRes.data.data
-      setAsset(assetData.asset)
-
-      // Pick best regression prediction for the "Next Day" box
-      const preds = assetData.predictions || []
-      const regressionPred = preds.find(p => p.predictedPrice != null && p.predictedPrice > 0 && p.task === 'regression') || preds[0]
-      if (regressionPred) setPrediction(regressionPred)
-
-      // Fetch 1 YEAR of price history so the chart can slice any range client-side
-      let rawHistory = []
-      try {
-        const histRes = await api.get(`/assets/${symbol}/history?period=1y`)
-        rawHistory = histRes?.data?.data?.history || []
-      } catch {
-        console.warn(`[AssetDetail] Could not load price history for ${symbol}`)
-      }
+      const histRes = await api.get(`/assets/${encodedSym}/history?period=1y`)
+      const rawHistory = histRes?.data?.data?.history || []
 
       if (rawHistory.length > 0) {
         const formatted = rawHistory
           .map(h => ({
             date: fmtChartDate(h.date || h.timestamp),
-            // Keep raw ISO date for range slicing (used in PriceChart useMemo)
             rawDate: new Date(h.date || h.timestamp).getTime(),
             close: parseFloat(h.close || h.price || 0),
             open: parseFloat(h.open || 0),
@@ -64,41 +52,70 @@ export default function AssetDetail() {
           }))
           .filter(d => d.close > 0)
           .sort((a, b) => a.rawDate - b.rawDate)
+
         setPriceHistory(formatted)
+        if (formatted.length <= 1) {
+          setHistoryError(true)
+        }
+        return rawHistory
+      } else {
+        setHistoryError(true)
       }
+    } catch (e) {
+      console.warn(`[AssetDetail] Could not load price history for ${symbol}:`, e)
+      setHistoryError(true)
+    } finally {
+      setHistoryLoading(false)
+    }
+    return []
+  }
+
+  const fetchData = async () => {
+    setFetchError(false)
+    setLoading(true)
+    try {
+      // Fetch asset details and predictions together
+      const assetRes = await api.get(`/assets/${encodedSym}`)
+      const assetData = assetRes.data.data
+      setAsset(assetData.asset)
+
+      // Pick best regression prediction for the "Next Day" box
+      const preds = assetData.predictions || []
+      const regressionPred = preds.find(p => p.predictedPrice != null && p.predictedPrice > 0 && p.task === 'regression') || preds[0]
+      if (regressionPred) setPrediction(regressionPred)
+
+      // Fetch 1 YEAR of price history
+      const rawHistory = await fetchHistory()
 
       // Build date → close price map for actual price lookup
       const dateCloseMap = {}
-      for (const h of rawHistory) {
-        const key = toDateKey(h.date || h.timestamp)
-        if (key) dateCloseMap[key] = parseFloat(h.close || h.price || 0)
+      if (Array.isArray(rawHistory)) {
+        for (const h of rawHistory) {
+          const key = toDateKey(h.date || h.timestamp)
+          if (key) dateCloseMap[key] = parseFloat(h.close || h.price || 0)
+        }
       }
 
       // Also fetch prediction history from /predictions/:symbol endpoint
       let rawPreds = []
       try {
-        const predRes = await api.get(`/predictions/${symbol}`)
+        const predRes = await api.get(`/predictions/${encodedSym}`)
         rawPreds = predRes?.data?.data?.predictions || preds
       } catch {
-        // Fall back to the predictions that came with the asset
         rawPreds = preds
       }
 
       if (rawPreds.length > 0) {
-        // Take the most recent 60 regression predictions (sorted newest-first from server)
         const regressionPreds = rawPreds
           .filter(p => p.predictedPrice != null && p.predictedPrice > 0 && (p.task === 'regression' || !p.task))
 
-        // Sort chronologically for the chart
         const sorted = [...regressionPreds]
           .sort((a, b) => new Date(a.predictionDate || a.createdAt) - new Date(b.predictionDate || b.createdAt))
-          .slice(-60) // most recent 60 entries chronologically
+          .slice(-60)
 
         const predFormatted = sorted.map(p => {
           const targetKey = toDateKey(p.targetDate || p.predictionDate)
-          const predKey = toDateKey(p.predictionDate || p.createdAt)
 
-          // Prefer stored actualPrice, then fall back to price history map
           let actual = null
           if (p.actualPrice != null && p.actualPrice > 0) {
             actual = p.actualPrice
@@ -114,7 +131,6 @@ export default function AssetDetail() {
           }
         })
 
-        // Only show prediction history chart if we have at least 2 data points
         if (predFormatted.length >= 2) {
           setPredictionHistory(predFormatted)
         }
@@ -215,7 +231,13 @@ export default function AssetDetail() {
 
         {/* Price History Chart — receives full 1Y dataset; PriceChart slices by selected range */}
         <div style={{ marginBottom: 24 }}>
-          <PriceChart data={priceHistory} symbol={symbol} />
+          <PriceChart
+            data={priceHistory}
+            symbol={symbol}
+            loading={historyLoading}
+            error={historyError}
+            onRetry={fetchHistory}
+          />
         </div>
 
         {/* ML Prediction Box */}

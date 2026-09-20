@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { FiBarChart2, FiInbox } from 'react-icons/fi'
+import { FiBarChart2, FiInbox, FiRefreshCw, FiAlertTriangle } from 'react-icons/fi'
 import { formatCurrency } from '../utils/helpers'
 
 const RANGES = [
@@ -23,10 +23,13 @@ const CustomTooltip = ({ active, payload, label }) => {
 
 /**
  * PriceChart
- * @param {Array} data - Full price history array (ideally 1Y worth), each item: { date, close, open, high, low }
+ * @param {Array} data - Full price history array, each item: { date, close, open, high, low }
  * @param {string} symbol - Asset ticker symbol
+ * @param {boolean} loading - History loading state
+ * @param {boolean} error - History fetch error state
+ * @param {function} onRetry - Handler to retry fetching history
  */
-export default function PriceChart({ data = [], symbol }) {
+export default function PriceChart({ data = [], symbol, loading = false, error = false, onRetry = null }) {
   const [range, setRange] = useState('1M')
 
   // Slice data client-side based on selected range — no extra network calls needed
@@ -34,8 +37,6 @@ export default function PriceChart({ data = [], symbol }) {
     if (!data || data.length === 0) return []
     const selected = RANGES.find(r => r.label === range)
     const cutoffDays = selected ? selected.days : 30
-    // data items have a `date` string like "Aug 11" — we need the raw date for slicing
-    // Use the last N items proportionally if no raw timestamps available
     if (data.length <= cutoffDays) return data
     return data.slice(-cutoffDays)
   }, [data, range])
@@ -77,7 +78,12 @@ export default function PriceChart({ data = [], symbol }) {
         </div>
       </div>
       <div className="chart-wrapper">
-        {chartData.length > 1 ? (
+        {loading ? (
+          <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', flexDirection: 'column', gap: 12 }}>
+            <div className="loader-spinner" style={{ width: 32, height: 32 }} />
+            <span>Loading historical price data...</span>
+          </div>
+        ) : chartData.length > 1 ? (
           <ResponsiveContainer width="100%" height={280}>
             <AreaChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
               <defs>
@@ -117,16 +123,38 @@ export default function PriceChart({ data = [], symbol }) {
               />
             </AreaChart>
           </ResponsiveContainer>
+        ) : error ? (
+          <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', flexDirection: 'column', gap: 12, textAlign: 'center', padding: 20 }}>
+            <FiAlertTriangle size={36} style={{ color: 'var(--warning)' }} />
+            <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Price history failed to load</span>
+            <span style={{ fontSize: '0.85rem', maxWidth: 400 }}>The market data server is taking longer to respond. Please try refreshing or check back shortly.</span>
+            {onRetry && (
+              <button className="btn btn-glass btn-sm" onClick={onRetry} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                <FiRefreshCw size={14} /> Retry Loading History
+              </button>
+            )}
+          </div>
         ) : chartData.length === 1 ? (
-          <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', flexDirection: 'column', gap: 8 }}>
-            <FiBarChart2 size={36} />
-            <span>Only 1 data point available — select a wider range or wait for more data to accumulate.</span>
+          <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', flexDirection: 'column', gap: 12, textAlign: 'center', padding: 20 }}>
+            <FiBarChart2 size={36} style={{ color: 'var(--color-purple)' }} />
+            <span style={{ fontSize: '0.95rem', fontWeight: 500 }}>Only 1 data point is currently loaded.</span>
+            <span style={{ fontSize: '0.85rem', maxWidth: 400 }}>Tap below to fetch full historical price data for {symbol}.</span>
+            {onRetry && (
+              <button className="btn btn-glass btn-sm" onClick={onRetry} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                <FiRefreshCw size={14} /> Fetch Full History
+              </button>
+            )}
           </div>
         ) : (
-          <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', flexDirection: 'column', gap: 8 }}>
+          <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', flexDirection: 'column', gap: 12, textAlign: 'center', padding: 20 }}>
             <FiInbox size={36} />
-            <span>No historical price data available</span>
-            <span style={{ fontSize: '0.8rem' }}>The ML API may be offline or this asset has no history yet.</span>
+            <span style={{ fontSize: '0.95rem', fontWeight: 500 }}>No price history data available</span>
+            <span style={{ fontSize: '0.85rem', maxWidth: 400 }}>Market data for {symbol} could not be retrieved right now.</span>
+            {onRetry && (
+              <button className="btn btn-glass btn-sm" onClick={onRetry} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                <FiRefreshCw size={14} /> Retry Loading History
+              </button>
+            )}
           </div>
         )}
       </div>

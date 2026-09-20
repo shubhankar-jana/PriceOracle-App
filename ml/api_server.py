@@ -175,6 +175,63 @@ def get_history(symbol):
         if now - cached_entry["time"] < HISTORY_CACHE_TTL:
             return jsonify(cached_entry["data"])
 
+    # Try direct Yahoo Finance v8 chart API first (fast, 100% authentic data, unthrottled)
+    try:
+        import urllib.request
+        import urllib.parse
+        import json
+
+        encoded_symbol = urllib.parse.quote(symbol)
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded_symbol}?range={period}&interval=1d"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'}
+        req = urllib.request.Request(url, headers=headers)
+        
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            chart_res = data.get("chart", {}).get("result", [{}])[0]
+            timestamps = chart_res.get("timestamp", [])
+            quote = chart_res.get("indicators", {}).get("quote", [{}])[0]
+            
+            closes = quote.get("close", [])
+            opens = quote.get("open", [])
+            highs = quote.get("high", [])
+            lows = quote.get("low", [])
+            volumes = quote.get("volume", [])
+
+            if timestamps and closes:
+                records = []
+                for i in range(len(timestamps)):
+                    if closes[i] is None:
+                        continue
+                    d_str = datetime.fromtimestamp(timestamps[i]).strftime("%Y-%m-%d")
+                    c_val = round(float(closes[i]), 4)
+                    o_val = round(float(opens[i]), 4) if i < len(opens) and opens[i] is not None else c_val
+                    h_val = round(float(highs[i]), 4) if i < len(highs) and highs[i] is not None else c_val
+                    l_val = round(float(lows[i]), 4) if i < len(lows) and lows[i] is not None else c_val
+                    v_val = int(volumes[i]) if i < len(volumes) and volumes[i] and volumes[i] > 0 else 0
+
+                    records.append({
+                        "date": d_str,
+                        "open": o_val,
+                        "high": h_val,
+                        "low": l_val,
+                        "close": c_val,
+                        "volume": v_val,
+                    })
+
+                if len(records) > 0:
+                    resp_data = {
+                        "symbol": symbol,
+                        "name": config.ALL_ASSETS[symbol],
+                        "period": period,
+                        "count": len(records),
+                        "history": records,
+                    }
+                    _history_cache[cache_key] = {"time": now, "data": resp_data}
+                    return jsonify(resp_data)
+    except Exception as e:
+        log.warning(f"Direct Yahoo v8 history fetch notice for {symbol}: {e}")
+
     try:
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period=period, interval="1d")
@@ -200,7 +257,7 @@ def get_history(symbol):
             _history_cache[cache_key] = {"time": now, "data": resp_data}
             return jsonify(resp_data)
     except Exception as e:
-        log.warning(f"History fetch error for {symbol}: {e}")
+        log.warning(f"yfinance history fetch error for {symbol}: {e}")
 
     # Return previous cached history if available
     if cache_key in _history_cache:

@@ -259,48 +259,16 @@ def get_history(symbol):
     except Exception as e:
         log.warning(f"yfinance history fetch error for {symbol}: {e}")
 
-    # Return previous cached history if available
-    if cache_key in _history_cache:
-        return jsonify(_history_cache[cache_key]["data"])
-
-    # Fallback: Generate synthetic daily trajectory ending at current cached price
-    cp = 100.0
-    if _prices_cache["data"] is not None:
-        cached_entry = next((p for p in _prices_cache["data"].get("prices", []) if p["symbol"] == symbol), None)
-        if cached_entry:
-            cp = cached_entry["price"]
-
-    days_count = 30
-    if period in ["6mo", "1y", "5y"]:
-        days_count = 90
-
-    from datetime import timedelta
-    fallback_records = []
-    base_date = datetime.now()
-
-    for i in range(days_count - 1, -1, -1):
-        d_str = (base_date - timedelta(days=i)).strftime("%Y-%m-%d")
-        # Small sine variation ending at exact current price cp
-        var_factor = 1.0 + (math.sin(i * 0.3) * 0.01) if i > 0 else 1.0
-        p_val = round(cp * var_factor, 4)
-        fallback_records.append({
-            "date": d_str,
-            "open": round(p_val * 0.998, 4),
-            "high": round(p_val * 1.004, 4),
-            "low": round(p_val * 0.996, 4),
-            "close": p_val,
-            "volume": 10000,
-        })
-
-    resp_fallback = {
+    # If real history fetch failed and no cache, return 503 error
+    return jsonify({
         "symbol": symbol,
-        "name": config.ALL_ASSETS[symbol],
+        "name": config.ALL_ASSETS.get(symbol, symbol),
         "period": period,
-        "count": len(fallback_records),
-        "history": fallback_records,
-    }
-    _history_cache[cache_key] = {"time": now, "data": resp_fallback}
-    return jsonify(resp_fallback)
+        "count": 0,
+        "history": [],
+        "error": True,
+        "message": f"Real price history unavailable for {symbol}",
+    }), 503
 
 
 # ---------------------------------------------------------------------------

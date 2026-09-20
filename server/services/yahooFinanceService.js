@@ -33,62 +33,74 @@ const getHistoricalPrices = async (symbol, period = '1m') => {
     return cached.data;
   }
 
-  try {
-    const encodedSymbol = encodeURIComponent(symbol);
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodedSymbol}?range=${range}&interval=1d`;
-    const userAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+  const encodedSymbol = encodeURIComponent(symbol);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodedSymbol}?range=${range}&interval=1d`;
 
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent': userAgent,
-        'Accept': 'application/json, text/plain, */*',
-      },
-      timeout: 10000,
-    });
-
-    const result = response.data?.chart?.result?.[0];
-    if (!result || !result.timestamp || !result.indicators?.quote?.[0]) {
-      throw new Error(`No chart data returned from Yahoo API for ${symbol}`);
-    }
-
-    const timestamps = result.timestamp;
-    const quote = result.indicators.quote[0];
-    const opens = quote.open || [];
-    const highs = quote.high || [];
-    const lows = quote.low || [];
-    const closes = quote.close || [];
-    const volumes = quote.volume || [];
-
-    const history = [];
-    for (let i = 0; i < timestamps.length; i++) {
-      if (closes[i] == null) continue;
-      const dateStr = new Date(timestamps[i] * 1000).toISOString().split('T')[0];
-      const closePrice = Number(closes[i].toFixed(4));
-      const openPrice = opens[i] != null ? Number(opens[i].toFixed(4)) : closePrice;
-      const highPrice = highs[i] != null ? Number(highs[i].toFixed(4)) : closePrice;
-      const lowPrice = lows[i] != null ? Number(lows[i].toFixed(4)) : closePrice;
-      const volumeVal = volumes[i] != null ? Math.round(volumes[i]) : 0;
-
-      history.push({
-        date: dateStr,
-        open: openPrice,
-        high: highPrice,
-        low: lowPrice,
-        close: closePrice,
-        volume: volumeVal,
+  let lastError = null;
+  // Up to 3 attempts with brief backoff on 429
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const userAgent = USER_AGENTS[(attempt - 1) % USER_AGENTS.length];
+      const response = await axios.get(url, {
+        headers: {
+          'User-Agent': userAgent,
+          'Accept': 'application/json, text/plain, */*',
+        },
+        timeout: 10000,
       });
-    }
 
-    if (history.length > 0) {
-      historyCache.set(cacheKey, { timestamp: Date.now(), data: history });
-      return history;
+      const result = response.data?.chart?.result?.[0];
+      if (!result || !result.timestamp || !result.indicators?.quote?.[0]) {
+        throw new Error(`No chart data returned from Yahoo API for ${symbol}`);
+      }
+
+      const timestamps = result.timestamp;
+      const quote = result.indicators.quote[0];
+      const opens = quote.open || [];
+      const highs = quote.high || [];
+      const lows = quote.low || [];
+      const closes = quote.close || [];
+      const volumes = quote.volume || [];
+
+      const history = [];
+      for (let i = 0; i < timestamps.length; i++) {
+        if (closes[i] == null) continue;
+        const dateStr = new Date(timestamps[i] * 1000).toISOString().split('T')[0];
+        const closePrice = Number(closes[i].toFixed(4));
+        const openPrice = opens[i] != null ? Number(opens[i].toFixed(4)) : closePrice;
+        const highPrice = highs[i] != null ? Number(highs[i].toFixed(4)) : closePrice;
+        const lowPrice = lows[i] != null ? Number(lows[i].toFixed(4)) : closePrice;
+        const volumeVal = volumes[i] != null ? Math.round(volumes[i]) : 0;
+
+        history.push({
+          date: dateStr,
+          open: openPrice,
+          high: highPrice,
+          low: lowPrice,
+          close: closePrice,
+          volume: volumeVal,
+        });
+      }
+
+      if (history.length > 0) {
+        historyCache.set(cacheKey, { timestamp: Date.now(), data: history });
+        return history;
+      }
+      throw new Error(`Empty history for ${symbol}`);
+    } catch (err) {
+      lastError = err;
+      if (err.response?.status === 429 && attempt < 3) {
+        // Pause 400ms before retrying with next User-Agent
+        await new Promise(resolve => setTimeout(resolve, 400 * attempt));
+        continue;
+      }
+      break;
     }
-    throw new Error(`Empty history for ${symbol}`);
-  } catch (err) {
-    console.warn(`[Yahoo Direct API] History fetch notice for ${symbol}:`, err.message);
-    if (cached) return cached.data;
-    throw err;
   }
+
+  console.warn(`[Yahoo Direct API] History fetch notice for ${symbol}:`, lastError?.message || 'Failed');
+  if (cached) return cached.data;
+  throw lastError || new Error(`Failed to fetch history for ${symbol}`);
 };
 
 module.exports = { getHistoricalPrices };

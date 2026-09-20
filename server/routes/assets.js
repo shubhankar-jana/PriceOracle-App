@@ -119,49 +119,16 @@ router.get('/:symbol/history', async (req, res, next) => {
       console.warn(`[Assets Route] ML API history notice: ${mlError.message}`);
     }
 
-    // 3. Fallback: Generate realistic multi-day daily trajectory from stored Asset data so chart never shows 1 point
+    // 3. Fallback: Return empty history if remote APIs fail (forces clean error state with Retry button in UI)
     const asset = await Asset.findOne({ symbol });
-    const cp = asset ? asset.currentPrice || 100 : 100;
-    const days = period === '1d' ? 5 : (period === '1w' ? 7 : (period === '1m' ? 30 : (period === '3m' ? 90 : (period === '6m' ? 180 : 365))));
-    
-    const fallbackHistory = [];
-    const now = new Date();
-    
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
-      
-      if (i > 0) {
-        const factor = 1 + (Math.sin(i * 0.4) * 0.008 + (Math.random() - 0.5) * 0.006);
-        const dayPrice = Number((cp / factor).toFixed(4));
-        fallbackHistory.push({
-          date: dateStr,
-          open: Number((dayPrice * 0.998).toFixed(4)),
-          high: Number((dayPrice * 1.005).toFixed(4)),
-          low: Number((dayPrice * 0.995).toFixed(4)),
-          close: dayPrice,
-          volume: 10000,
-        });
-      } else {
-        fallbackHistory.push({
-          date: dateStr,
-          open: asset?.latestOHLCV?.open || Number((cp * 0.998).toFixed(4)),
-          high: asset?.latestOHLCV?.high || Number((cp * 1.005).toFixed(4)),
-          low: asset?.latestOHLCV?.low || Number((cp * 0.995).toFixed(4)),
-          close: cp,
-          volume: asset?.latestOHLCV?.volume || 10000,
-        });
-      }
-    }
-
-    res.json({
-      success: true,
+    return res.json({
+      success: false,
       data: {
         symbol,
         period,
-        history: fallbackHistory,
+        history: [],
       },
+      message: 'Could not fetch real historical price data. Tap Retry to load.',
     });
   } catch (error) {
     next(error);

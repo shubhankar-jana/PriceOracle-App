@@ -13,6 +13,7 @@ const cron = require('node-cron');
 const Prediction = require('../models/Prediction');
 const Asset = require('../models/Asset');
 const mlBridge = require('../services/mlBridge');
+const yahooFinanceService = require('../services/yahooFinanceService');
 
 /**
  * Fill actualPrice for all past-due predictions that are missing it.
@@ -49,12 +50,19 @@ const backfillActualPrices = async () => {
       // Pause 300ms between symbols to avoid hammering rate limits
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      try {
         let closePriceMap = {};
         try {
-          const histData = await mlBridge.getHistory(symbol, '1y');
-          if (histData && Array.isArray(histData.history)) {
-            for (const h of histData.history) {
+          let historyList = [];
+          try {
+            const histData = await mlBridge.getHistory(symbol, '1y');
+            if (histData && Array.isArray(histData.history)) historyList = histData.history;
+          } catch (mErr) {
+            // Fall back to direct Yahoo API
+            historyList = await yahooFinanceService.getHistoricalPrices(symbol, '1y');
+          }
+
+          if (Array.isArray(historyList)) {
+            for (const h of historyList) {
               const dateKey = typeof h.date === 'string'
                 ? h.date.slice(0, 10)
                 : new Date(h.date).toISOString().slice(0, 10);
@@ -62,7 +70,7 @@ const backfillActualPrices = async () => {
             }
           }
         } catch (hErr) {
-          console.warn(`[ActualPriceBackfiller] Could not fetch remote history for ${symbol}: ${hErr.message}`);
+          console.warn(`[ActualPriceBackfiller] Could not fetch history for ${symbol}: ${hErr.message}`);
         }
 
         const assetDoc = await Asset.findOne({ symbol });

@@ -83,22 +83,54 @@ const updatePrices = async () => {
   }
 };
 
+const DEFAULT_ASSETS = [
+  { symbol: 'AAPL', name: 'Apple Inc.', category: 'stock' },
+  { symbol: 'GOOG', name: 'Alphabet Inc.', category: 'stock' },
+  { symbol: 'MSFT', name: 'Microsoft Corporation', category: 'stock' },
+  { symbol: 'TSLA', name: 'Tesla Inc.', category: 'stock' },
+  { symbol: 'AMZN', name: 'Amazon.com Inc.', category: 'stock' },
+  { symbol: 'RELIANCE.NS', name: 'Reliance Industries', category: 'stock' },
+  { symbol: 'TCS.NS', name: 'Tata Consultancy Services', category: 'stock' },
+  { symbol: 'INFY.NS', name: 'Infosys Ltd.', category: 'stock' },
+  { symbol: 'SBIN.NS', name: 'State Bank of India', category: 'stock' },
+  { symbol: 'GC=F', name: 'Gold Futures', category: 'commodity' },
+  { symbol: 'SI=F', name: 'Silver Futures', category: 'commodity' },
+  { symbol: 'CL=F', name: 'Crude Oil (WTI)', category: 'commodity' },
+  { symbol: 'BTC-USD', name: 'Bitcoin USD', category: 'crypto' },
+  { symbol: 'DX-Y.NYB', name: 'US Dollar Index', category: 'index' },
+  { symbol: 'USDINR=X', name: 'USD/INR', category: 'currency' },
+  { symbol: 'EURUSD=X', name: 'EUR/USD', category: 'currency' },
+  { symbol: 'GBPUSD=X', name: 'GBP/USD', category: 'currency' },
+  { symbol: 'USDJPY=X', name: 'USD/JPY', category: 'currency' },
+  { symbol: 'AUDUSD=X', name: 'AUD/USD', category: 'currency' },
+  { symbol: 'USDCAD=X', name: 'USD/CAD', category: 'currency' },
+  { symbol: 'USDCHF=X', name: 'USD/CHF', category: 'currency' },
+  { symbol: 'USDCNY=X', name: 'USD/CNY', category: 'currency' },
+  { symbol: 'NZDUSD=X', name: 'NZD/USD', category: 'currency' },
+  { symbol: 'USDSGD=X', name: 'USD/SGD', category: 'currency' },
+];
+
 /**
- * Sync asset list from the ML API.
+ * Sync asset list from the ML API (or fallback asset definitions).
  * Creates new Asset documents for any new symbols.
  * @returns {Promise<object>} Sync results.
  */
 const syncAssets = async () => {
+  let assetList = DEFAULT_ASSETS;
+
   try {
     const assetData = await mlBridge.getAssets();
-
-    if (!assetData || !assetData.assets) {
-      return { success: false, message: 'No asset data received' };
+    if (assetData && Array.isArray(assetData.assets) && assetData.assets.length > 0) {
+      assetList = assetData.assets;
     }
+  } catch (bridgeErr) {
+    console.warn('[Price Service] Using built-in asset catalog:', bridgeErr.message);
+  }
 
+  try {
     let created = 0;
     let updated = 0;
-    for (const asset of assetData.assets) {
+    for (const asset of assetList) {
       const sym = asset.symbol.toUpperCase();
       const result = await Asset.findOneAndUpdate(
         { symbol: sym },
@@ -115,7 +147,7 @@ const syncAssets = async () => {
     console.log(`[Price Service] Synced assets. Created: ${created}, Updated: ${updated}`);
     return { success: true, created, updated };
   } catch (error) {
-    console.error('[Price Service] Asset sync failed:', error.message);
+    console.warn('[Price Service] Asset sync notice:', error.message);
     return { success: false, error: error.message };
   }
 };

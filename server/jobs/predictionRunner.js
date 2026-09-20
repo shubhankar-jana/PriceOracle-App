@@ -92,9 +92,11 @@ const runPredictions = async () => {
 const init = async (socketIO) => {
   io = socketIO;
 
-  // Run immediately on startup to populate predictions right away
-  console.log('[Prediction Runner] Running initial predictions on startup...');
-  await runPredictions();
+  // Run in background after a brief delay to allow ML service to initialize
+  setTimeout(() => {
+    console.log('[Prediction Runner] Running initial predictions in background...');
+    runPredictions().catch(e => console.warn('[Prediction Runner] Initial cycle warning:', e.message));
+  }, 10000);
 
   // Then schedule every 6 hours
   cron.schedule('0 */6 * * *', runPredictions);

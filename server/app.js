@@ -14,6 +14,9 @@ const userRoutes = require('./routes/user');
 
 const app = express();
 
+// Enable trust proxy for Render / reverse proxies (fixes express-rate-limit X-Forwarded-For warning)
+app.set('trust proxy', 1);
+
 // ============================================================
 // Global Middleware
 // ============================================================

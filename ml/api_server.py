@@ -43,9 +43,9 @@ CORS(app)
 _prices_cache = {"timestamp": 0, "data": None}
 _history_cache = {}
 _predict_cache = {}
-PRICES_CACHE_TTL = 90      # 90 seconds
-HISTORY_CACHE_TTL = 300    # 5 minutes
-PREDICT_CACHE_TTL = 300    # 5 minutes
+PRICES_CACHE_TTL = 300     # 5 minutes — reduces Yahoo Finance calls to max 12/hr per instance
+HISTORY_CACHE_TTL = 600    # 10 minutes
+PREDICT_CACHE_TTL = 600    # 10 minutes
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +319,7 @@ def latest_prices():
 def _technical_prediction(symbol: str, name: str, task: str) -> dict:
     """
     Generate a prediction using technical analysis on live data.
-    Used as a fallback when no trained ML model exists.
+    Uses cached prices first; falls back to yfinance if cache is cold.
     Uses: 5-day momentum, RSI-like signal, and volatility-based confidence.
     """
     import yfinance as yf
@@ -327,12 +327,49 @@ def _technical_prediction(symbol: str, name: str, task: str) -> dict:
     from datetime import timedelta
 
     try:
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="30d", interval="1d")
-        if hist.empty or len(hist) < 5:
+        # Try to use history cache to avoid extra Yahoo Finance requests
+        cache_key = f"{symbol}_30d"
+        hist_df = None
+        now = time.time()
+
+        if cache_key in _history_cache and (now - _history_cache[cache_key]["time"] < HISTORY_CACHE_TTL):
+            import pandas as pd
+            cached_hist = _history_cache[cache_key]["data"]
+            records = cached_hist.get("history", [])
+            if len(records) >= 5:
+                closes = [r["close"] for r in records]
+            else:
+                hist_df = None
+        else:
+            ticker = yf.Ticker(symbol)
+            hist_df = ticker.history(period="30d", interval="1d")
+
+        if hist_df is not None:
+            if hist_df.empty or len(hist_df) < 5:
+                # Return simple estimate using cached prices if available
+                if _prices_cache["data"] is not None:
+                    cached_entry = next((p for p in _prices_cache["data"].get("prices", []) if p["symbol"] == symbol), None)
+                    if cached_entry:
+                        cp = cached_entry["price"]
+                        chg_pct = cached_entry.get("change_percent", 0) or 0
+                        direction = "up" if chg_pct >= 0 else "down"
+                        predicted_price = round(cp * (1 + (0.004 if direction == "up" else -0.004)), 4)
+                        target_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+                        return {
+                            "error": False, "symbol": symbol, "name": name,
+                            "current_price": cp, "predicted_price": predicted_price,
+                            "predictedPrice": predicted_price, "direction": direction,
+                            "confidence": 0.55, "model_name": "TechnicalAnalysis",
+                            "modelName": "TechnicalAnalysis", "task": task,
+                            "prediction_date": datetime.now().strftime("%Y-%m-%d"),
+                            "target_date": target_date, "targetDate": target_date,
+                        }
+                return {"error": True, "symbol": symbol, "message": "Not enough data"}
+            closes = list(hist_df["Close"].values)
+
+        if not closes or len(closes) < 5:
             return {"error": True, "symbol": symbol, "message": "Not enough data"}
 
-        closes = hist["Close"].values
         current_price = float(closes[-1])
 
         # 5-day momentum
@@ -351,57 +388,36 @@ def _technical_prediction(symbol: str, name: str, task: str) -> dict:
         volatility = float(sum(r**2 for r in returns[-10:]) / 10) ** 0.5 if returns else 0.01
 
         # Direction signal: momentum + RSI
-        # RSI < 30 = oversold = likely up, RSI > 70 = overbought = likely down
         rsi_signal = 1 if rsi < 45 else (-1 if rsi > 55 else 0)
         momentum_signal = 1 if momentum_5d > 0.002 else (-1 if momentum_5d < -0.002 else 0)
         combined = rsi_signal + momentum_signal
 
         direction = "up" if combined >= 0 else "down"
 
-        # Confidence: higher when both signals agree and volatility is low
-        signal_strength = abs(combined) / 2  # 0 to 1
+        signal_strength = abs(combined) / 2
         vol_penalty = min(volatility * 10, 0.3)
         confidence = round(max(0.50, min(0.85, 0.55 + signal_strength * 0.25 - vol_penalty)), 4)
 
-        # Predicted price: current + expected move (bounded to realistic 1-day change: max ±2.5%)
         raw_move = momentum_5d * 0.2 + (0.004 if direction == "up" else -0.004)
         expected_move_pct = max(-0.025, min(0.025, raw_move))
         predicted_price = round(current_price * (1 + expected_move_pct), 4)
 
         target_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
+        base = {
+            "error": False, "symbol": symbol, "name": name,
+            "current_price": round(current_price, 4),
+            "direction": direction, "confidence": confidence,
+            "model_name": "TechnicalAnalysis", "modelName": "TechnicalAnalysis",
+            "task": task,
+            "prediction_date": datetime.now().strftime("%Y-%m-%d"),
+            "target_date": target_date, "targetDate": target_date,
+        }
         if task == "regression":
-            return {
-                "error": False,
-                "symbol": symbol,
-                "name": name,
-                "current_price": round(current_price, 4),
-                "predicted_price": predicted_price,
-                "predictedPrice": predicted_price,
-                "direction": direction,
-                "confidence": confidence,
-                "model_name": "TechnicalAnalysis",
-                "modelName": "TechnicalAnalysis",
-                "task": task,
-                "prediction_date": datetime.now().strftime("%Y-%m-%d"),
-                "target_date": target_date,
-                "targetDate": target_date,
-            }
-        else:
-            return {
-                "error": False,
-                "symbol": symbol,
-                "name": name,
-                "current_price": round(current_price, 4),
-                "direction": direction,
-                "confidence": confidence,
-                "model_name": "TechnicalAnalysis",
-                "modelName": "TechnicalAnalysis",
-                "task": task,
-                "prediction_date": datetime.now().strftime("%Y-%m-%d"),
-                "target_date": target_date,
-                "targetDate": target_date,
-            }
+            base["predicted_price"] = predicted_price
+            base["predictedPrice"] = predicted_price
+        return base
+
     except Exception as e:
         return {"error": True, "symbol": symbol, "message": str(e)}
 

@@ -3,7 +3,7 @@
  * Nightly cron job that fills in actualPrice for past predictions.
  *
  * For every Prediction where targetDate <= now and actualPrice is null,
- * it fetches the real closing price from the ML API /history endpoint
+ * it fetches the real closing price from the ML API /history endpoint (or direct Yahoo Finance API)
  * and writes it back to the Prediction document.
  *
  * This powers the "Actual vs Predicted" chart on the Asset Detail page.
@@ -50,6 +50,7 @@ const backfillActualPrices = async () => {
       // Pause 300ms between symbols to avoid hammering rate limits
       await new Promise(resolve => setTimeout(resolve, 300));
 
+      try {
         let closePriceMap = {};
         try {
           let historyList = [];

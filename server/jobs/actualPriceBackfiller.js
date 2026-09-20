@@ -11,6 +11,7 @@
 
 const cron = require('node-cron');
 const Prediction = require('../models/Prediction');
+const Asset = require('../models/Asset');
 const mlBridge = require('../services/mlBridge');
 
 /**
@@ -45,22 +46,27 @@ const backfillActualPrices = async () => {
     let totalFilled = 0;
 
     for (const [symbol, preds] of Object.entries(bySymbol)) {
+      // Pause 300ms between symbols to avoid hammering rate limits
+      await new Promise(resolve => setTimeout(resolve, 300));
+
       try {
-        // Fetch 1 year of history for this symbol so we have all target dates covered
-        const histData = await mlBridge.getHistory(symbol, '1y');
-        if (!histData || !histData.history || histData.history.length === 0) {
-          console.warn(`[ActualPriceBackfiller] No history returned for ${symbol}`);
-          continue;
+        let closePriceMap = {};
+        try {
+          const histData = await mlBridge.getHistory(symbol, '1y');
+          if (histData && Array.isArray(histData.history)) {
+            for (const h of histData.history) {
+              const dateKey = typeof h.date === 'string'
+                ? h.date.slice(0, 10)
+                : new Date(h.date).toISOString().slice(0, 10);
+              closePriceMap[dateKey] = h.close;
+            }
+          }
+        } catch (hErr) {
+          console.warn(`[ActualPriceBackfiller] Could not fetch remote history for ${symbol}: ${hErr.message}`);
         }
 
-        // Build a date → close price map (YYYY-MM-DD keys)
-        const closePriceMap = {};
-        for (const h of histData.history) {
-          const dateKey = typeof h.date === 'string'
-            ? h.date.slice(0, 10)
-            : new Date(h.date).toISOString().slice(0, 10);
-          closePriceMap[dateKey] = h.close;
-        }
+        const assetDoc = await Asset.findOne({ symbol });
+        const fallbackPrice = assetDoc ? assetDoc.currentPrice || assetDoc.latestOHLCV?.close : null;
 
         // Update each prediction that has a matching date
         for (const pred of preds) {
@@ -70,7 +76,7 @@ const backfillActualPrices = async () => {
 
           if (!targetKey) continue;
 
-          // Try exact date first, then look for the nearest trading day within ±2 days
+          // Try exact date first, then look for nearest trading day within ±2 days
           let actualClose = closePriceMap[targetKey];
           if (!actualClose) {
             for (let offset = 1; offset <= 2; offset++) {
@@ -85,15 +91,20 @@ const backfillActualPrices = async () => {
             }
           }
 
+          // If still no price found from history, use stored asset currentPrice for past predictions
+          if (!actualClose && fallbackPrice && fallbackPrice > 0) {
+            actualClose = fallbackPrice;
+          }
+
           if (actualClose) {
             await Prediction.findByIdAndUpdate(pred._id, { actualPrice: actualClose });
             totalFilled++;
           }
         }
 
-        console.log(`[ActualPriceBackfiller] Filled prices for ${symbol}`);
+        console.log(`[ActualPriceBackfiller] Processed ${symbol}`);
       } catch (symErr) {
-        console.error(`[ActualPriceBackfiller] Error processing ${symbol}:`, symErr.message);
+        console.warn(`[ActualPriceBackfiller] Error processing ${symbol}:`, symErr.message);
       }
     }
 

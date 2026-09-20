@@ -124,24 +124,34 @@ const startServer = async () => {
 // ============================================================
 // Graceful Shutdown
 // ============================================================
-const gracefulShutdown = (signal) => {
+const gracefulShutdown = async (signal) => {
   console.log(`\n[Server] ${signal} received. Shutting down gracefully...`);
 
-  server.close(() => {
-    console.log('[Server] HTTP server closed');
+  try {
+    // Close HTTP server
+    if (server && server.listening) {
+      await new Promise((resolve) => server.close(resolve));
+      console.log('[Server] HTTP server closed');
+    }
 
     // Close Socket.IO
-    io.close(() => {
+    if (io) {
+      await new Promise((resolve) => io.close(resolve));
       console.log('[Server] Socket.IO closed');
-    });
+    }
 
     // Close MongoDB connection
     const mongoose = require('mongoose');
-    mongoose.connection.close(false, () => {
+    if (mongoose.connection && mongoose.connection.readyState !== 0) {
+      await mongoose.connection.close(false);
       console.log('[Server] MongoDB connection closed');
-      process.exit(0);
-    });
-  });
+    }
+
+    process.exit(0);
+  } catch (err) {
+    console.error('[Server] Error during graceful shutdown:', err.message);
+    process.exit(1);
+  }
 
   // Force shutdown after 10 seconds
   setTimeout(() => {

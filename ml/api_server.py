@@ -19,6 +19,7 @@ Usage:
 
 import os
 import sys
+import time
 import argparse
 import logging
 from datetime import datetime
@@ -37,6 +38,14 @@ log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
+
+# In-memory caches to protect against Yahoo Finance 429 rate limits
+_prices_cache = {"timestamp": 0, "data": None}
+_history_cache = {}
+_predict_cache = {}
+PRICES_CACHE_TTL = 90      # 90 seconds
+HISTORY_CACHE_TTL = 300    # 5 minutes
+PREDICT_CACHE_TTL = 300    # 5 minutes
 
 
 # ---------------------------------------------------------------------------
@@ -191,50 +200,117 @@ def get_history(symbol):
 # ---------------------------------------------------------------------------
 @app.route("/latest-prices", methods=["GET"])
 def latest_prices():
-    """Fetch current/latest prices for all tracked assets using yfinance."""
+    """Fetch current/latest prices for all tracked assets using batch yfinance with caching."""
     import yfinance as yf
-    import math
+
+    now = time.time()
+    # If cache is valid (within 90s), return immediately
+    if _prices_cache["data"] is not None and (now - _prices_cache["timestamp"] < PRICES_CACHE_TTL):
+        return jsonify(_prices_cache["data"])
 
     prices = []
     errors = []
+    symbols = list(config.ALL_ASSETS.keys())
 
-    for symbol, name in config.ALL_ASSETS.items():
-        try:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="5d", interval="1d")
-            if hist.empty:
-                errors.append({"symbol": symbol, "name": name, "message": "No data"})
-                continue
+    # Try batch download first (single HTTP request to avoid 429 rate limits)
+    try:
+        data = yf.download(
+            tickers=" ".join(symbols),
+            period="5d",
+            interval="1d",
+            group_by="ticker",
+            threads=True,
+            progress=False,
+            timeout=15,
+        )
 
-            latest = hist.iloc[-1]
-            prev_close = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else None
-            current_close = float(latest["Close"])
+        for symbol in symbols:
+            name = config.ALL_ASSETS[symbol]
+            try:
+                df = data[symbol] if len(symbols) > 1 and symbol in data else data
+                if df is not None and not df.empty and "Close" in df:
+                    df_clean = df.dropna(subset=["Close"])
+                    if not df_clean.empty:
+                        latest = df_clean.iloc[-1]
+                        prev_close = float(df_clean["Close"].iloc[-2]) if len(df_clean) >= 2 else None
+                        current_close = float(latest["Close"])
 
-            entry = {
-                "symbol": symbol,
-                "name": name,
-                "price": round(current_close, 4),
-                "open": round(float(latest["Open"]), 4),
-                "high": round(float(latest["High"]), 4),
-                "low": round(float(latest["Low"]), 4),
-                "volume": int(latest["Volume"]) if latest["Volume"] > 0 else None,
-                "date": str(hist.index[-1].date()),
-            }
+                        entry = {
+                            "symbol": symbol,
+                            "name": name,
+                            "price": round(current_close, 4),
+                            "open": round(float(latest["Open"]), 4) if "Open" in latest else round(current_close, 4),
+                            "high": round(float(latest["High"]), 4) if "High" in latest else round(current_close, 4),
+                            "low": round(float(latest["Low"]), 4) if "Low" in latest else round(current_close, 4),
+                            "volume": int(latest["Volume"]) if "Volume" in latest and latest["Volume"] > 0 else None,
+                            "date": str(df_clean.index[-1].date()),
+                        }
 
-            if prev_close is not None and prev_close != 0:
-                change = current_close - prev_close
-                change_pct = (change / prev_close) * 100
-                entry["change"] = round(change, 4)
-                entry["change_percent"] = round(change_pct, 2)
+                        if prev_close is not None and prev_close != 0:
+                            change = current_close - prev_close
+                            change_pct = (change / prev_close) * 100
+                            entry["change"] = round(change, 4)
+                            entry["change_percent"] = round(change_pct, 2)
 
-            prices.append(entry)
+                        prices.append(entry)
+                        continue
+            except Exception as e_inner:
+                log.debug(f"Batch parse error for {symbol}: {e_inner}")
 
-        except Exception as e:
-            errors.append({"symbol": symbol, "name": name, "message": str(e)})
+            # Fallback to individual ticker
+            try:
+                ticker = yf.Ticker(symbol)
+                hist = ticker.history(period="5d", interval="1d")
+                if not hist.empty:
+                    latest = hist.iloc[-1]
+                    prev_close = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else None
+                    current_close = float(latest["Close"])
+
+                    entry = {
+                        "symbol": symbol,
+                        "name": name,
+                        "price": round(current_close, 4),
+                        "open": round(float(latest["Open"]), 4),
+                        "high": round(float(latest["High"]), 4),
+                        "low": round(float(latest["Low"]), 4),
+                        "volume": int(latest["Volume"]) if latest["Volume"] > 0 else None,
+                        "date": str(hist.index[-1].date()),
+                    }
+
+                    if prev_close is not None and prev_close != 0:
+                        change = current_close - prev_close
+                        change_pct = (change / prev_close) * 100
+                        entry["change"] = round(change, 4)
+                        entry["change_percent"] = round(change_pct, 2)
+
+                    prices.append(entry)
+                else:
+                    errors.append({"symbol": symbol, "name": name, "message": "No data"})
+            except Exception as e_indiv:
+                errors.append({"symbol": symbol, "name": name, "message": str(e_indiv)})
+
+    except Exception as e_batch:
+        log.warning(f"Batch download failed: {e_batch}")
+
+    if len(prices) > 0:
+        result_payload = {
+            "count": len(prices),
+            "prices": prices,
+            "errors": errors,
+            "timestamp": datetime.now().isoformat(),
+        }
+        _prices_cache["timestamp"] = now
+        _prices_cache["data"] = result_payload
+        return jsonify(result_payload)
+
+    # Return stale cache if available rather than throwing 429/500
+    if _prices_cache["data"] is not None:
+        log.info("Serving stale cached prices during upstream rate limit")
+        return jsonify(_prices_cache["data"])
 
     return jsonify({
-        "count": len(prices),
-        "prices": prices,
+        "count": 0,
+        "prices": [],
         "errors": errors,
         "timestamp": datetime.now().isoformat(),
     })

@@ -28,9 +28,11 @@ mlClient.interceptors.response.use(
   },
   (error) => {
     if (error.code === 'ECONNREFUSED') {
-      console.error('[ML Bridge] ML API is not running at', config.ML_API_URL);
+      console.warn('[ML Bridge] ML API is spinning up or unreachable at', config.ML_API_URL);
+    } else if (error.response?.status === 429) {
+      console.warn('[ML Bridge] Rate limited (429) by upstream service. Retrying with fallback cache.');
     } else {
-      console.error('[ML Bridge] Response error:', error.message);
+      console.warn('[ML Bridge] ML API request notice:', error.message);
     }
     return Promise.reject(error);
   }

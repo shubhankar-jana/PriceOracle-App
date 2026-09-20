@@ -78,7 +78,7 @@ const updatePrices = async () => {
     console.log(`[Price Service] Updated ${updates.length} assets`);
     return { success: true, updated: updates.length, data: updates };
   } catch (error) {
-    console.error('[Price Service] Update failed:', error.message);
+    console.warn('[Price Service] Price update notice:', error.message);
     return { success: false, error: error.message };
   }
 };

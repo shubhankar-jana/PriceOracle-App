@@ -11,14 +11,14 @@ let io = null;
 const init = (socketIO) => {
   io = socketIO;
 
-  // Run every minute
-  cron.schedule('* * * * *', async () => {
+  // Run every 3 minutes
+  cron.schedule('*/3 * * * *', async () => {
     console.log('[Price Updater] Running scheduled price update...');
 
     try {
       const result = await priceService.updatePrices();
 
-      if (result.success && io) {
+      if (result.success && io && result.updated > 0) {
         io.emit('priceUpdate', {
           timestamp: new Date().toISOString(),
           updated: result.updated,
@@ -27,11 +27,11 @@ const init = (socketIO) => {
         console.log(`[Price Updater] Emitted priceUpdate for ${result.updated} assets`);
       }
     } catch (error) {
-      console.error('[Price Updater] Cron job failed:', error.message);
+      console.warn('[Price Updater] Price update cycle warning:', error.message);
     }
   });
 
-  console.log('[Price Updater] Cron job scheduled (every hour)');
+  console.log('[Price Updater] Cron job scheduled (every 3 minutes)');
 };
 
 module.exports = { init };
